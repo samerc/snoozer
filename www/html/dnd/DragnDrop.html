@@ -1,0 +1,110 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>jQuery UI Sortable - Connect lists</title>
+	<link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+	<!-- <link rel="stylesheet" href="/resources/demos/style.css"> -->
+	<style>
+	#sortable1, #sortable2, #sortable3 {
+		border: 1px solid #eee;
+		width: 142px;
+		min-height: 20px;
+		list-style-type: none;
+		margin: 0;
+		padding: 5px 0 0 0;
+		float: left;
+		margin-right: 10px;
+	}
+	#sortable1 li, #sortable2 li, #sortable3 li {
+		margin: 0 5px 5px 5px;
+		padding: 5px;
+		font-size: 1.2em;
+		width: 120px;
+	}
+	
+	/*  SECTIONS  */
+	.section {
+		clear: both;
+		padding: 0px;
+		margin: 0px;
+	}
+
+	/*  COLUMN SETUP  */
+	.col {
+		display: block;
+		float:left;
+		margin: 1% 0 1% 1.6%;
+	}
+	.col:first-child { margin-left: 0; }
+
+	/*  GROUPING  */
+	.group:before,
+	.group:after { content:""; display:table; }
+	.group:after { clear:both;}
+	.group { zoom:1; /* For IE 6/7 */ }
+	/*  GRID OF THREE  */
+	.span_3_of_3 { width: 100%; }
+	.span_2_of_3 { width: 66.13%; }
+	.span_1_of_3 { width: 32.26%; }
+	.span_pad	 { width: 10%;}
+
+	/*  GO FULL WIDTH BELOW 480 PIXELS */
+	@media only screen and (max-width: 480px) {
+		.col {  margin: 1% 0 1% 0%; }
+		.span_3_of_3, .span_2_of_3, .span_1_of_3 { width: 100%; }
+	}
+	.list-heading {
+    font-weight: normal;
+	}
+	
+	</style>
+	<script src="https://code.jquery.com/jquery-1.12.4.js"></script>
+	<script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+	<script>
+	$( function() {
+		$( "#sortable1, #sortable2, #sortable3" ).sortable({
+			connectWith: ".connectedSortable"
+		}).disableSelection();
+	} );
+	</script>
+</head>
+<body>
+<div class="col span_1_of_3">
+<section>
+<h3 class="list-heading">heading</h3>
+<ul id="sortable1" class="connectedSortable">
+	<li class="ui-state-default">Item 1</li>
+	<li class="ui-state-default">Item 2</li>
+	<li class="ui-state-default">Item 3</li>
+	<li class="ui-state-default">Item 4</li>
+	<li class="ui-state-default">Item 5</li>
+</ul>
+</section>
+</div>
+<div class="col span_1_of_3">
+<h3 class="list-heading">heading</h3>
+<ul id="sortable2" class="connectedSortable">
+	<li class="ui-state-highlight">Item 1</li>
+	<li class="ui-state-highlight">Item 2</li>
+	<li class="ui-state-highlight">Item 3</li>
+	<li class="ui-state-highlight">Item 4</li>
+	<li class="ui-state-highlight">Item 5</li>
+</ul>
+</div>
+<div class="col span_1_of_3">
+<h3 class="list-heading">heading</h3>
+<ul id="sortable3" class="connectedSortable">
+	<li class="ui-state-highlight">Item 1 <hr /> blabla</li>
+	<li class="ui-state-highlight">Item 2 <hr /> blabla</li>
+	<li class="ui-state-highlight">Item 3 <hr /> blabla</li>
+	<li class="ui-state-highlight">Item 4 <hr /> blabla</li>
+	<li class="ui-state-highlight">CAS-04691-S9K2G0 - Vitas - GPO configuration for IE11 and IE12 <hr /> blabla</li>
+</ul>
+</div>
+
+
+</body>
+</html>

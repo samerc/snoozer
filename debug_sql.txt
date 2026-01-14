@@ -1,0 +1,9 @@
+UPDATE users SET name = ?, email = ?, role = ?, timezone = ? WHERE ID = ?
+Array
+(
+    [0] => Samer Cheaib
+    [1] => samer_cheaib@bahriah.com
+    [2] => admin
+    [3] => Asia/Beirut
+    [4] => 1
+)

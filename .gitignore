@@ -1,0 +1,23 @@
+# Environment files
+.env
+.env.*
+
+# Database exports
+*.sql
+
+# PHP dependencies
+vendor/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Editor folders
+.vscode/
+.idea/
+.gemini/
+.agent/
+brain/
