@@ -2,6 +2,30 @@
 
 class Utils
 {
+    public static function generateCsrfToken()
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        if (empty($_SESSION['csrf_token'])) {
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        }
+        return $_SESSION['csrf_token'];
+    }
+
+    public static function validateCsrfToken($token)
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
+    }
+
+    public static function csrfField()
+    {
+        return '<input type="hidden" name="csrf_token" value="' . htmlspecialchars(self::generateCsrfToken()) . '">';
+    }
+
     public static function dataEncrypt($data, $key)
     {
         // Matches legacy logic: Base64(Encrypted . :: . IV)
@@ -21,9 +45,13 @@ class Utils
     public static function getActionUrl($id, $messageId, $action, $time, $sslKey)
     {
         $vkey = rawurlencode(self::dataEncrypt($messageId, $sslKey));
-        // Use the actual domain or env var for domain
-        $domain = "https://app.snoozer.cloud";
+        $domain = $_ENV['APP_URL'] ?? 'https://app.snoozer.cloud';
         return "$domain/actions/exec.php?ID=$id&a=$action&t=$time&vkey=$vkey";
+    }
+
+    public static function getAppUrl()
+    {
+        return $_ENV['APP_URL'] ?? 'https://app.snoozer.cloud';
     }
 
     public static function time_elapsed_string($datetime, $full = false)

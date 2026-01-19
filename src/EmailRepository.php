@@ -71,7 +71,13 @@ class EmailRepository
     public function updateReminderTime($id, $timestamp)
     {
         $sql = "UPDATE emails SET actiontimestamp = ? WHERE ID = ?";
-        $this->db->query($sql, [$timestamp, $id], 'ii'); // Assuming ID is int
+        $this->db->query($sql, [$timestamp, $id], 'ii');
+    }
+
+    public function getById($id)
+    {
+        $rows = $this->db->fetchAll("SELECT * FROM emails WHERE ID = ? LIMIT 1", [$id], 'i');
+        return $rows[0] ?? null;
     }
 
     public function findReminder($email, $subject)

@@ -128,7 +128,7 @@ class EmailProcessor
                 <p>We couldn't find any scheduled reminders matching your search: <strong>" . htmlspecialchars($decodedSubject) . "</strong></p>
                 <p>Visit your dashboard to view all active reminders.</p>
                 <div style='margin-top: 20px; text-align: center;'>
-                    <a href='http://localhost:8000/dashboard.php' style='background-color: #7d3c98; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;'>Go to Dashboard</a>
+                    <a href='" . Utils::getAppUrl() . "/dashboard.php' style='background-color: #7d3c98; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;'>Go to Dashboard</a>
                 </div>
             ");
             $this->mailer->send($fromAddress, "No matching email found in your reminders", $body);

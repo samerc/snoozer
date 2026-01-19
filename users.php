@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once 'src/User.php';
+require_once 'src/Utils.php';
 
 // Auth & RBAC Check
 if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? 'user') !== 'admin') {
@@ -27,26 +28,37 @@ $error = '';
 
 // Handle Form Submission (Update or Create)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
-    $name = $_POST['name'] ?? '';
-    $email = $_POST['email'] ?? '';
-    $password = $_POST['password'] ?? '';
-    $role = $_POST['role'] ?? 'user';
-    $userId = $_POST['user_id'] ?? '';
+    if (!Utils::validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        $error = "Invalid request. Please try again.";
+    } else {
+        $action = $_POST['action'] ?? '';
+        $name = $_POST['name'] ?? '';
+        $email = $_POST['email'] ?? '';
+        $password = $_POST['password'] ?? '';
+        $role = $_POST['role'] ?? 'user';
+        $userId = $_POST['user_id'] ?? '';
 
-    if ($action === 'create') {
-        if ($userRepo->create($name, $email, $role)) {
-            $newUser = $userRepo->findByEmail($email);
-            if ($newUser && !empty($password)) {
-                $userRepo->update($newUser['ID'], $name, $email, $password, $role);
+        if ($action === 'create') {
+            if ($userRepo->create($name, $email, $role)) {
+                $newUser = $userRepo->findByEmail($email);
+                if ($newUser && !empty($password)) {
+                    $userRepo->update($newUser['ID'], $name, $email, $password, $role);
+                }
+                $message = "User created successfully.";
+            } else {
+                $error = "Failed to create user (Email might exist).";
             }
-            $message = "User created successfully.";
-        } else {
-            $error = "Failed to create user (Email might exist).";
+        } elseif ($action === 'update') {
+            $userRepo->update($userId, $name, $email, !empty($password) ? $password : null, $role);
+            $message = "User updated successfully.";
+        } elseif ($action === 'reset_password') {
+            $userId = $_POST['user_id'] ?? '';
+            if ($userId) {
+                $newPassword = substr(str_shuffle('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*'), 0, 10);
+                $userRepo->updatePassword($userId, $newPassword);
+                $message = "Password reset successfully. The new password is: <strong>" . htmlspecialchars($newPassword) . "</strong>";
+            }
         }
-    } elseif ($action === 'update') {
-        $userRepo->update($userId, $name, $email, !empty($password) ? $password : null, $role);
-        $message = "User updated successfully.";
     }
 }
 
@@ -133,6 +145,15 @@ $users = $userRepo->getAll();
                             <td class="pr-4 align-middle">
                                 <button class="btn btn-sm btn-outline-primary rounded-pill px-3"
                                     onclick='prepareModal("update", <?php echo json_encode($u); ?>)'>Edit</button>
+                                <form method="POST" style="display:inline;"
+                                    onsubmit="return confirm('Are you sure you want to reset the password for this user?');">
+                                    <?php echo Utils::csrfField(); ?>
+                                    <input type="hidden" name="action" value="reset_password">
+                                    <input type="hidden" name="user_id" value="<?php echo $u['ID']; ?>">
+                                    <button type="submit"
+                                        class="btn btn-sm btn-outline-warning rounded-pill px-3 ml-1">Reset
+                                        Password</button>
+                                </form>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -146,6 +167,7 @@ $users = $userRepo->getAll();
         <div class="modal-dialog" role="document">
             <div class="modal-content glass-panel" style="border-radius: 20px; color: #333;">
                 <form method="POST">
+                    <?php echo Utils::csrfField(); ?>
                     <div class="modal-header border-0">
                         <h5 class="modal-title font-weight-bold" id="modalTitle">User</h5>
                         <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>

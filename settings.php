@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once 'src/User.php';
+require_once 'src/Utils.php';
 
 // Auth Check
 if (!isset($_SESSION['user_id'])) {
@@ -27,20 +28,24 @@ $error = '';
 
 // Handle Form Submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $timezone = $_POST['timezone'] ?? 'UTC';
-    $password = $_POST['password'] ?? '';
-
-    if (!in_array($timezone, timezone_identifiers_list())) {
-        $error = "Invalid Timezone";
+    if (!Utils::validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        $error = "Invalid request. Please try again.";
     } else {
-        $userRepo->update($user['ID'], $user['name'], $user['email'], !empty($password) ? $password : null, $user['role'], $timezone);
-        $message = "Settings updated successfully.";
+        $timezone = $_POST['timezone'] ?? 'UTC';
+        $password = $_POST['password'] ?? '';
 
-        // Refresh 
-        $user = $userRepo->findByEmail($_SESSION['user_email']);
-        $newTz = $user['timezone'] ?? $timezone ?? 'UTC';
-        date_default_timezone_set($newTz);
-        $_SESSION['user_timezone'] = $newTz;
+        if (!in_array($timezone, timezone_identifiers_list())) {
+            $error = "Invalid Timezone";
+        } else {
+            $userRepo->update($user['ID'], $user['name'], $user['email'], !empty($password) ? $password : null, $user['role'], $timezone);
+            $message = "Settings updated successfully.";
+
+            // Refresh
+            $user = $userRepo->findByEmail($_SESSION['user_email']);
+            $newTz = $user['timezone'] ?? $timezone ?? 'UTC';
+            date_default_timezone_set($newTz);
+            $_SESSION['user_timezone'] = $newTz;
+        }
     }
 }
 ?>
@@ -97,6 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <div class="glass-panel p-4">
             <form method="POST">
+                <?php echo Utils::csrfField(); ?>
                 <div class="row">
                     <div class="col-md-6">
                         <div class="form-group">

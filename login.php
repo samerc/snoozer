@@ -1,27 +1,35 @@
 <?php
 session_start();
 require_once 'src/User.php';
+require_once 'src/Utils.php';
 
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = $_POST['email'] ?? '';
-    $password = $_POST['password'] ?? '';
-
-    $userRepo = new User();
-    $user = $userRepo->login($email, $password);
-
-    if ($user) {
-        $_SESSION['user_id'] = $user['ID'];
-        $_SESSION['user_email'] = $user['email'];
-        $_SESSION['user_name'] = $user['name'];
-        $_SESSION['user_role'] = $user['role'];
-        $_SESSION['user_timezone'] = $user['timezone'] ?? 'UTC';
-        $_SESSION['user_theme'] = $user['theme'] ?? 'dark';
-        header('Location: dashboard.php');
-        exit;
+    // Validate CSRF token
+    if (!Utils::validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        $error = "Invalid request. Please try again.";
     } else {
-        $error = "Invalid email or password";
+        $email = $_POST['email'] ?? '';
+        $password = $_POST['password'] ?? '';
+
+        $userRepo = new User();
+        $user = $userRepo->login($email, $password);
+
+        if ($user) {
+            // Regenerate session ID to prevent session fixation
+            session_regenerate_id(true);
+            $_SESSION['user_id'] = $user['ID'];
+            $_SESSION['user_email'] = $user['email'];
+            $_SESSION['user_name'] = $user['name'];
+            $_SESSION['user_role'] = $user['role'];
+            $_SESSION['user_timezone'] = $user['timezone'] ?? 'UTC';
+            $_SESSION['user_theme'] = $user['theme'] ?? 'dark';
+            header('Location: dashboard.php');
+            exit;
+        } else {
+            $error = "Invalid email or password";
+        }
     }
 }
 ?>
@@ -86,6 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
 
         <form method="POST">
+            <?php echo Utils::csrfField(); ?>
             <div class="form-group mb-4">
                 <label class="small font-weight-bold ml-2">EMAIL ADDRESS</label>
                 <input type="email" name="email" class="form-control rounded-pill px-4 py-4 border-0"
@@ -98,6 +107,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     placeholder="••••••••" required style="background: rgba(255,255,255,0.1); color: #fff;">
             </div>
             <button type="submit" class="btn btn-premium btn-block py-3 mt-2">Sign In</button>
+            <div class="text-center mt-3">
+                <a href="forgot_password.php" class="small text-muted" style="text-decoration: none;">Forgot
+                    Password?</a>
+            </div>
         </form>
 
         <div class="text-center mt-4">

@@ -2,6 +2,7 @@
 session_start();
 require_once 'src/User.php';
 require_once 'src/Database.php';
+require_once 'src/Utils.php';
 
 // Auth & RBAC Check
 if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? 'user') !== 'admin') {
@@ -15,18 +16,22 @@ $error = '';
 
 // Handle Template Save
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['slug'])) {
-    $slug = $_POST['slug'];
-    $subject = $_POST['subject'] ?? '';
-    $body = $_POST['body'] ?? '';
+    if (!Utils::validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        $error = "Invalid request. Please try again.";
+    } else {
+        $slug = $_POST['slug'];
+        $subject = $_POST['subject'] ?? '';
+        $body = $_POST['body'] ?? '';
 
-    try {
-        $db->query(
-            "UPDATE email_templates SET subject = ?, body = ? WHERE slug = ?",
-            [$subject, $body, $slug]
-        );
-        $message = "Template '$slug' updated successfully.";
-    } catch (Exception $e) {
-        $error = "Failed to update template: " . $e->getMessage();
+        try {
+            $db->query(
+                "UPDATE email_templates SET subject = ?, body = ? WHERE slug = ?",
+                [$subject, $body, $slug]
+            );
+            $message = "Template '$slug' updated successfully.";
+        } catch (Exception $e) {
+            $error = "Failed to update template: " . $e->getMessage();
+        }
     }
 }
 
@@ -129,6 +134,7 @@ $adminUser = $userRepo->findByEmail($_SESSION['user_email']);
 
                 <?php if ($activeTemplate): ?>
                     <form method="POST">
+                        <?php echo Utils::csrfField(); ?>
                         <input type="hidden" name="slug" value="<?php echo $activeTemplate['slug']; ?>">
                         <div class="glass-panel p-4">
                             <div class="d-flex justify-content-between align-items-center mb-4">

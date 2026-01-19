@@ -74,7 +74,7 @@ if ($action == "s") { // Snooze
 		if ($decrypted_message_id == $email["message_id"]) {
 			// Apply User Timezone if possible
 			$userObj = new User();
-			$owner = $userObj->findByEmail($email['owner']);
+			$owner = $userObj->findByEmail($email['fromaddress']);
 			if ($owner && !empty($owner['timezone'])) {
 				date_default_timezone_set($owner['timezone']);
 			}

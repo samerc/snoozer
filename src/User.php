@@ -44,6 +44,13 @@ class User
         return false;
     }
 
+    public function updatePassword($id, $password)
+    {
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+        $sql = "UPDATE users SET password = ? WHERE ID = ?";
+        $this->db->query($sql, [$hash, $id]);
+    }
+
     public function update($id, $name, $email, $password = null, $role = null, $timezone = null, $theme = null)
     {
         $params = [$name, $email];

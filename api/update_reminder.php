@@ -58,13 +58,13 @@ switch ($column) {
 try {
     $repo = new EmailRepository();
 
-    // Security check: Ensure email belongs to user? 
-    // EmailRepository doesn't enforce owner on updateReminderTime yet. 
-    // Strictly speaking we should check ownership. 
-    // For specific user: $repo->getById($id) -> check email matches session email.
-    // Given 'Prototype/MVP' context, we assume ID is valid, but let's be safe if easy.
-    // We don't have getById exposed easily yet without writing query.
-    // Proceeding with update for now.
+    // Ownership check: Ensure email belongs to logged-in user
+    $email = $repo->getById($id);
+    if (!$email || $email['fromaddress'] !== $_SESSION['user_email']) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Forbidden']);
+        exit;
+    }
 
     $repo->updateReminderTime($id, $newTimestamp);
 
