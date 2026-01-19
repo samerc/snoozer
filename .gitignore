@@ -3,8 +3,10 @@
 .env.*
 !.env.example
 
-# Database exports
+# Database exports (except schema)
 *.sql
+!Database_Export.sql
+!migrations/*.sql
 
 # PHP dependencies
 vendor/
