@@ -26,6 +26,28 @@ class Utils
         return '<input type="hidden" name="csrf_token" value="' . htmlspecialchars(self::generateCsrfToken()) . '">';
     }
 
+    /**
+     * Validate an email address
+     *
+     * @param string $email Email address to validate
+     * @return bool True if valid, false otherwise
+     */
+    public static function isValidEmail($email)
+    {
+        return filter_var($email, FILTER_VALIDATE_EMAIL) !== false;
+    }
+
+    /**
+     * Sanitize an email address (lowercase, trim)
+     *
+     * @param string $email Email address to sanitize
+     * @return string Sanitized email
+     */
+    public static function sanitizeEmail($email)
+    {
+        return strtolower(trim($email));
+    }
+
     public static function dataEncrypt($data, $key)
     {
         // Matches legacy logic: Base64(Encrypted . :: . IV)
@@ -52,6 +74,50 @@ class Utils
     public static function getAppUrl()
     {
         return $_ENV['APP_URL'] ?? 'https://app.snoozer.cloud';
+    }
+
+    /**
+     * Parse a time expression and return a future timestamp.
+     * Handles rolling forward if the parsed time is in the past.
+     *
+     * @param string $timeExpr Time expression (e.g., "tomorrow", "monday", "+2 hours")
+     * @param int|null $baseTimestamp Base timestamp for relative parsing (default: now)
+     * @return int|false Timestamp or false if parsing fails
+     */
+    public static function parseTimeExpression($timeExpr, $baseTimestamp = null)
+    {
+        $baseTimestamp = $baseTimestamp ?? time();
+        $timeExpr = strtolower(trim($timeExpr));
+
+        // Parse the time expression
+        $actionTimestamp = strtotime($timeExpr, $baseTimestamp);
+        if ($actionTimestamp === false) {
+            return false;
+        }
+
+        // Roll forward if time is in the past
+        if ($actionTimestamp < time()) {
+            if (preg_match("/(?:sat|sun|mon|tue|wed|thu|fri)/", $timeExpr)) {
+                // Weekday reference → add 1 week
+                $actionTimestamp = strtotime('+1 week', $actionTimestamp);
+            } elseif (preg_match("/(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/", $timeExpr)) {
+                // Month reference → add 1 year
+                $actionTimestamp = strtotime('+1 year', $actionTimestamp);
+            } elseif (!preg_match("/(?:min|hour|day|week|month)/", $timeExpr)) {
+                // Not a relative expression → add 1 day
+                $actionTimestamp = strtotime('+1 day', $actionTimestamp);
+            }
+        }
+
+        // Midnight adjustment: if landing exactly on midnight, shift to 6am
+        // (unless explicitly requesting midnight)
+        if (!preg_match("/(?:midnight|0000)/", $timeExpr)) {
+            if ($actionTimestamp == strtotime("midnight", $actionTimestamp)) {
+                $actionTimestamp = strtotime("+6 hours", $actionTimestamp);
+            }
+        }
+
+        return $actionTimestamp;
     }
 
     public static function time_elapsed_string($datetime, $full = false)

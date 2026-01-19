@@ -1,5 +1,6 @@
 <?php
 require_once 'EmailRepository.php';
+require_once 'EmailStatus.php';
 require_once 'User.php';
 require_once 'Mailer.php';
 require_once 'Utils.php';
@@ -35,10 +36,10 @@ class EmailProcessor
 
             if ($result == 2) { // "set" settings
                 $this->userRepo->updateDefaultReminderTime($fromAddress, $email['subject']);
-                $actionTimestamp = -1;
+                $actionTimestamp = EmailStatus::IGNORED;
             } elseif ($result === "search") {
                 $this->handleSearch($fromAddress, $email['subject']);
-                $actionTimestamp = -1;
+                $actionTimestamp = EmailStatus::IGNORED;
             }
 
             // Update email
@@ -51,8 +52,8 @@ class EmailProcessor
         $emails = $this->emailRepo->getPendingActions(time());
         foreach ($emails as $email) {
             $this->sendReminder($email);
-            // Mark as reminded (processed=2)
-            $this->emailRepo->updateProcessingStatus($email['ID'], 2);
+            // Mark as reminded
+            $this->emailRepo->updateProcessingStatus($email['ID'], EmailStatus::REMINDED);
         }
     }
 
@@ -65,7 +66,7 @@ class EmailProcessor
 
         if ($username == "upcoming") {
             $this->sendUpcomingDigest($fromAddress);
-            return -1;
+            return EmailStatus::IGNORED;
         }
 
         if ($username == "check" || $username == "search") {
@@ -83,32 +84,14 @@ class EmailProcessor
             $username = "6pm";
 
         if (in_array($username, $ignoredAddresses)) {
-            return -1;
+            return EmailStatus::IGNORED;
         }
 
-        // Time parsing
-        if (($actionTimestamp = strtotime($username, $timestamp)) === false) {
-            // Invalid
+        // Time parsing using shared utility
+        $actionTimestamp = Utils::parseTimeExpression($username, $timestamp);
+        if ($actionTimestamp === false) {
             $this->sendNdr($fromAddress, $toEmail);
-            return -1;
-        }
-
-        // Logic for past times
-        if ($actionTimestamp < time()) {
-            if (preg_match("/(?:sat|sun|mon|tue|wed|thu|fri)/", $username)) {
-                $actionTimestamp = strtotime('+1 week', $actionTimestamp);
-            } elseif (preg_match("/(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/", $username)) {
-                $actionTimestamp = strtotime('+1 year', $actionTimestamp);
-            } elseif (!preg_match("/(?:min|hour|day|week|month)/", $username)) {
-                $actionTimestamp = strtotime('+1 day', $actionTimestamp);
-            }
-        }
-
-        // Midnight logic
-        if (!preg_match("/(?:midnight|0000)/", $username)) {
-            if ($actionTimestamp == strtotime("midnight", $actionTimestamp)) {
-                $actionTimestamp = strtotime("+6 hours", $actionTimestamp);
-            }
+            return EmailStatus::IGNORED;
         }
 
         return $actionTimestamp;

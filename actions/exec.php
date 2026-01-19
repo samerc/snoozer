@@ -5,6 +5,7 @@ require_once '../env_loader.php';
 require_once '../src/Database.php';
 require_once '../src/User.php';
 require_once '../src/Utils.php';
+require_once '../src/EmailStatus.php';
 
 $db = Database::getInstance();
 
@@ -89,17 +90,8 @@ if ($action == "s") { // Snooze
 				$msg = "Email is scheduled for release.";
 				renderResponse("Done", "Email released", $subject, $msg);
 			} else {
-				$actiontimestamp = strtotime($time);
-				// Handle past times (roll over to next week/year/day)
-				if ($actiontimestamp < time()) {
-					if (preg_match("/(?:sat|sun|mon|tue|wed|thu|fri)/", $time)) {
-						$actiontimestamp = strtotime('+1 week', $actiontimestamp);
-					} else if (preg_match("/(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/", $time)) {
-						$actiontimestamp = strtotime('+1 year', $actiontimestamp);
-					} else if (!preg_match("/(?:min|hour|day|week|month)/", $time)) {
-						$actiontimestamp = strtotime('+1 day', $actiontimestamp);
-					}
-				}
+				// Use shared time parsing utility
+				$actiontimestamp = Utils::parseTimeExpression($time);
 
 				$formattedDate = date('l dS \o\f F Y h:i:s A', $actiontimestamp);
 				$msg = "Next reminder scheduled for <strong>$formattedDate</strong>.";
@@ -107,7 +99,8 @@ if ($action == "s") { // Snooze
 			}
 
 			// Update database
-			$db->query("UPDATE emails SET processed='1', actiontimestamp=? WHERE id=?", [$actiontimestamp, $ID]);
+			$status = EmailStatus::PROCESSED;
+			$db->query("UPDATE emails SET processed='{$status}', actiontimestamp=? WHERE id=?", [$actiontimestamp, $ID]);
 		} else {
 			echo "Security verification failed.";
 		}
@@ -143,7 +136,8 @@ if ($action == "s") { // Snooze
 		$decrypted_message_id = Utils::dataDecrypt($vkey, $sslkey);
 
 		if ($decrypted_message_id == $email["message_id"]) {
-			$db->query("UPDATE emails SET processed='2' WHERE id=?", [$ID]);
+			$status = EmailStatus::REMINDED;
+			$db->query("UPDATE emails SET processed='{$status}' WHERE id=?", [$ID]);
 			$subject = $email["subject"];
 			if (function_exists('mb_decode_mimeheader')) {
 				$subject = mb_decode_mimeheader($subject);

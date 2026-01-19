@@ -2,6 +2,7 @@
 session_start();
 require_once 'src/User.php';
 require_once 'src/Utils.php';
+require_once 'src/RateLimiter.php';
 
 $error = '';
 
@@ -10,25 +11,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!Utils::validateCsrfToken($_POST['csrf_token'] ?? '')) {
         $error = "Invalid request. Please try again.";
     } else {
-        $email = $_POST['email'] ?? '';
+        $email = Utils::sanitizeEmail($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
 
-        $userRepo = new User();
-        $user = $userRepo->login($email, $password);
-
-        if ($user) {
-            // Regenerate session ID to prevent session fixation
-            session_regenerate_id(true);
-            $_SESSION['user_id'] = $user['ID'];
-            $_SESSION['user_email'] = $user['email'];
-            $_SESSION['user_name'] = $user['name'];
-            $_SESSION['user_role'] = $user['role'];
-            $_SESSION['user_timezone'] = $user['timezone'] ?? 'UTC';
-            $_SESSION['user_theme'] = $user['theme'] ?? 'dark';
-            header('Location: dashboard.php');
-            exit;
+        // Validate email format
+        if (!Utils::isValidEmail($email)) {
+            $error = "Please enter a valid email address.";
         } else {
-            $error = "Invalid email or password";
+            // Rate limiting: 5 attempts per 15 minutes per IP
+            $rateLimiter = new RateLimiter(5, 15);
+            $rateLimitKey = RateLimiter::getClientIp();
+
+            if ($rateLimiter->tooManyAttempts($rateLimitKey)) {
+                $remainingSeconds = $rateLimiter->availableIn($rateLimitKey);
+                $remainingMinutes = ceil($remainingSeconds / 60);
+                $error = "Too many login attempts. Please try again in {$remainingMinutes} minute(s).";
+            } else {
+                $userRepo = new User();
+                $user = $userRepo->login($email, $password);
+
+                if ($user) {
+                    // Clear rate limit on successful login
+                    $rateLimiter->clear($rateLimitKey);
+
+                    // Regenerate session ID to prevent session fixation
+                    session_regenerate_id(true);
+                    $_SESSION['user_id'] = $user['ID'];
+                    $_SESSION['user_email'] = $user['email'];
+                    $_SESSION['user_name'] = $user['name'];
+                    $_SESSION['user_role'] = $user['role'];
+                    $_SESSION['user_timezone'] = $user['timezone'] ?? 'UTC';
+                    $_SESSION['user_theme'] = $user['theme'] ?? 'dark';
+                    header('Location: dashboard.php');
+                    exit;
+                } else {
+                    // Record failed attempt
+                    $rateLimiter->hit($rateLimitKey);
+                    $error = "Invalid email or password";
+                }
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 <?php
 require_once 'Database.php';
+require_once 'EmailStatus.php';
 
 class EmailRepository
 {
@@ -12,20 +13,22 @@ class EmailRepository
 
     public function getPendingActions($nowTimestamp)
     {
-        // processed=1 means it has been analyzed and is waiting for the action time
-        // actiontimestamp <> -1 means it has a valid future action time
-        $sql = "SELECT * FROM emails WHERE processed = 1 AND actiontimestamp <> -1 AND actiontimestamp <= ?";
+        // Emails that have been analyzed and are waiting for the action time
+        $status = EmailStatus::PROCESSED;
+        $ignored = EmailStatus::IGNORED;
+        $sql = "SELECT * FROM emails WHERE processed = {$status} AND actiontimestamp <> {$ignored} AND actiontimestamp <= ?";
         return $this->db->fetchAll($sql, [$nowTimestamp], 'i');
     }
 
     public function getUpcomingForUser($userEmail)
     {
-        // processed=1 and actiontimestamp not -1 (cancelled/none)
-        $sql = "SELECT ID, message_id, fromaddress, toaddress, subject, timestamp, actiontimestamp, sslkey 
-                FROM emails 
-                WHERE fromaddress = ? 
-                AND processed = 1 
-                AND actiontimestamp <> -1 
+        $status = EmailStatus::PROCESSED;
+        $ignored = EmailStatus::IGNORED;
+        $sql = "SELECT ID, message_id, fromaddress, toaddress, subject, timestamp, actiontimestamp, sslkey
+                FROM emails
+                WHERE fromaddress = ?
+                AND processed = {$status}
+                AND actiontimestamp <> {$ignored}
                 ORDER BY actiontimestamp ASC";
         return $this->db->fetchAll($sql, [$userEmail]);
     }
@@ -38,7 +41,8 @@ class EmailRepository
 
     public function markAsProcessed($id, $actionTimestamp)
     {
-        $sql = "UPDATE emails SET actiontimestamp = ?, processed = 1 WHERE ID = ?";
+        $status = EmailStatus::PROCESSED;
+        $sql = "UPDATE emails SET actiontimestamp = ?, processed = {$status} WHERE ID = ?";
         $this->db->query($sql, [$actionTimestamp, $id], 'ii');
     }
 
@@ -87,12 +91,13 @@ class EmailRepository
         $sub = preg_replace($pattern, '', $subject);
         $searchSub = '%' . $sub . '%';
 
-        $sql = "SELECT * FROM emails 
-                WHERE Subject LIKE ? 
-                AND toaddress <> 'check@snoozer.cloud' 
-                AND toaddress <> 'search@snoozer.cloud' 
-                AND fromaddress = ? 
-                AND processed = 1 
+        $status = EmailStatus::PROCESSED;
+        $sql = "SELECT * FROM emails
+                WHERE Subject LIKE ?
+                AND toaddress <> 'check@snoozer.cloud'
+                AND toaddress <> 'search@snoozer.cloud'
+                AND fromaddress = ?
+                AND processed = {$status}
                 ORDER BY actiontimestamp";
         return $this->db->fetchAll($sql, [$searchSub, $email], 'ss');
     }

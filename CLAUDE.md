@@ -32,10 +32,13 @@ mysql -u root -p < Database_Export.sql
 - **Database.php** - MySQL singleton connection with prepared statements
 - **User.php** - User CRUD, authentication (bcrypt), password management
 - **EmailIngestor.php** - IMAP mailbox connection, email parsing, auto-creates users on first email
+- **EmailIngestorMailgun.php** - Alternative ingestor using Mailgun API (for environments without IMAP)
 - **EmailProcessor.php** - Main business logic: interprets time expressions, sends reminders and NDRs
 - **EmailRepository.php** - Data access layer for emails table
+- **EmailStatus.php** - Constants for email processing states (UNPROCESSED, PROCESSED, REMINDED, IGNORED)
 - **Mailer.php** - PHP mail() wrapper with HTML support and threading headers
-- **Utils.php** - AES-256-CBC encryption for action URLs, CSRF token helpers, utility functions
+- **RateLimiter.php** - Login brute force protection (tracks failed attempts per IP)
+- **Utils.php** - CSRF helpers, email validation, time parsing, encryption utilities
 
 ### Request Flow
 
