@@ -1,13 +1,10 @@
 <?php
-session_start();
+require_once 'src/Session.php';
 require_once 'src/User.php';
 require_once 'src/Utils.php';
 
-// Auth & RBAC Check
-if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? 'user') !== 'admin') {
-    header('Location: login.php');
-    exit;
-}
+Session::start();
+Session::requireAdmin();
 
 $userRepo = new User();
 $adminUser = $userRepo->findByEmail($_SESSION['user_email']);

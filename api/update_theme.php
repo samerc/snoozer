@@ -1,19 +1,32 @@
 <?php
-session_start();
+require_once __DIR__ . '/../src/Session.php';
 require_once __DIR__ . '/../src/User.php';
+require_once __DIR__ . '/../src/Utils.php';
 
 header('Content-Type: application/json');
 
-if (!isset($_SESSION['user_id'])) {
+Session::start();
+
+if (!Session::isLoggedIn()) {
     http_response_code(401);
+    echo json_encode(['error' => 'Unauthorized']);
     exit;
 }
 
 $input = json_decode(file_get_contents('php://input'), true);
+
+// CSRF validation
+if (!Utils::validateAjaxCsrf($input)) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Invalid CSRF token']);
+    exit;
+}
+
 $theme = $input['theme'] ?? 'dark';
 
 if (!in_array($theme, ['light', 'dark'])) {
     http_response_code(400);
+    echo json_encode(['error' => 'Invalid theme']);
     exit;
 }
 

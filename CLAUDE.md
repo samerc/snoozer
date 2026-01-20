@@ -31,6 +31,7 @@ mysql -u root -p < Database_Export.sql
 
 - **Database.php** - MySQL singleton connection with prepared statements
 - **User.php** - User CRUD, authentication (bcrypt), password management
+- **Session.php** - Secure session management (timeout, secure cookies, security headers)
 - **EmailIngestor.php** - IMAP mailbox connection, email parsing, auto-creates users on first email
 - **EmailIngestorMailgun.php** - Alternative ingestor using Mailgun API (for environments without IMAP)
 - **EmailProcessor.php** - Main business logic: interprets time expressions, sends reminders and NDRs
@@ -78,11 +79,13 @@ Environment variables in `.env`:
 
 ## Security
 
-- **CSRF Protection** - All forms use `Utils::csrfField()` and validate with `Utils::validateCsrfToken()`
-- **Session Management** - Session ID regenerated after login to prevent session fixation
+- **CSRF Protection** - All forms use `Utils::csrfField()` and validate with `Utils::validateCsrfToken()`. AJAX endpoints accept `X-CSRF-Token` header via `Utils::validateAjaxCsrf()`
+- **Session Management** - `Session::start()` handles secure cookie settings (HttpOnly, Secure, SameSite=Lax), 30-minute inactivity timeout, and session ID regeneration after login
+- **Security Headers** - Automatically sent via `Session::sendSecurityHeaders()`: X-Frame-Options, X-Content-Type-Options, X-XSS-Protection, CSP, Referrer-Policy, Permissions-Policy
 - **Password Hashing** - bcrypt via `password_hash()` / `password_verify()`
 - **SQL Injection** - Prepared statements throughout via Database class
 - **Action URL Security** - AES-256-CBC encrypted message IDs with per-email SSL keys
+- **Rate Limiting** - Login attempts limited to 5 per 15 minutes per IP via RateLimiter class
 
 ## Key Technical Notes
 

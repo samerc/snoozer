@@ -1,11 +1,14 @@
 <?php
-session_start();
+require_once __DIR__ . '/../src/Session.php';
 require_once __DIR__ . '/../src/EmailRepository.php';
+require_once __DIR__ . '/../src/Utils.php';
 
 header('Content-Type: application/json');
 
+Session::start();
+
 // Auth Check
-if (!isset($_SESSION['user_id'])) {
+if (!Session::isLoggedIn()) {
     http_response_code(401);
     echo json_encode(['error' => 'Unauthorized']);
     exit;
@@ -18,6 +21,14 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $input = json_decode(file_get_contents('php://input'), true);
+
+// CSRF validation
+if (!Utils::validateAjaxCsrf($input)) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Invalid CSRF token']);
+    exit;
+}
+
 $id = $input['id'] ?? null;
 $column = $input['column'] ?? null;
 

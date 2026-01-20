@@ -1,5 +1,7 @@
 <?php
-session_start();
-session_destroy();
+require_once 'src/Session.php';
+
+Session::start();
+Session::destroy();
 header('Location: login.php');
 exit;

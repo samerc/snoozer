@@ -100,7 +100,7 @@ if ($action == "s") { // Snooze
 
 			// Update database
 			$status = EmailStatus::PROCESSED;
-			$db->query("UPDATE emails SET processed='{$status}', actiontimestamp=? WHERE id=?", [$actiontimestamp, $ID]);
+			$db->query("UPDATE emails SET processed=?, actiontimestamp=? WHERE id=?", [$status, $actiontimestamp, $ID], 'iii');
 		} else {
 			echo "Security verification failed.";
 		}
@@ -137,7 +137,7 @@ if ($action == "s") { // Snooze
 
 		if ($decrypted_message_id == $email["message_id"]) {
 			$status = EmailStatus::REMINDED;
-			$db->query("UPDATE emails SET processed='{$status}' WHERE id=?", [$ID]);
+			$db->query("UPDATE emails SET processed=? WHERE id=?", [$status, $ID], 'ii');
 			$subject = $email["subject"];
 			if (function_exists('mb_decode_mimeheader')) {
 				$subject = mb_decode_mimeheader($subject);

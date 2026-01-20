@@ -1,12 +1,11 @@
 <?php
-session_start();
-if (!isset($_SESSION['user_id'])) {
-    header('Location: login.php');
-    exit;
-}
+require_once 'src/Session.php';
 require_once 'src/User.php';
 require_once 'src/EmailRepository.php';
 require_once 'src/Utils.php';
+
+Session::start();
+Session::requireAuth();
 
 $currentUserEmail = $_SESSION['user_email'];
 
@@ -52,6 +51,7 @@ foreach ($emails as $email) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <?php echo Utils::csrfMeta(); ?>
     <title>Snoozer Kanban</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.2.1/css/bootstrap.min.css">
@@ -260,6 +260,8 @@ foreach ($emails as $email) {
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
             // Theme Switcher
             const toggleSwitch = document.querySelector('.theme-switch input[type="checkbox"]');
             async function switchTheme(e) {
@@ -268,7 +270,7 @@ foreach ($emails as $email) {
                 e.target.closest('.theme-switch-wrapper').querySelector('span').textContent = theme.charAt(0).toUpperCase() + theme.slice(1);
                 await fetch('api/update_theme.php', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ theme })
                 });
             }
@@ -300,7 +302,7 @@ foreach ($emails as $email) {
                 try {
                     const response = await fetch('api/update_reminder.php', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                         body: JSON.stringify({ id, column })
                     });
                     const result = await response.json();

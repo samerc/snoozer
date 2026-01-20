@@ -1,7 +1,9 @@
 <?php
-session_start();
+require_once 'src/Session.php';
 require_once 'src/User.php';
 require_once 'src/Utils.php';
+
+Session::start();
 
 $message = '';
 $error = '';

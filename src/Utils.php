@@ -27,6 +27,41 @@ class Utils
     }
 
     /**
+     * Validate CSRF token for AJAX requests.
+     * Checks X-CSRF-Token header first, then falls back to csrf_token in JSON body.
+     *
+     * @param array|null $jsonBody Decoded JSON body (optional)
+     * @return bool True if valid, false otherwise
+     */
+    public static function validateAjaxCsrf($jsonBody = null)
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        // Check header first
+        $headerToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!empty($headerToken) && isset($_SESSION['csrf_token'])) {
+            return hash_equals($_SESSION['csrf_token'], $headerToken);
+        }
+
+        // Fall back to JSON body
+        if ($jsonBody && isset($jsonBody['csrf_token']) && isset($_SESSION['csrf_token'])) {
+            return hash_equals($_SESSION['csrf_token'], $jsonBody['csrf_token']);
+        }
+
+        return false;
+    }
+
+    /**
+     * Output a meta tag for CSRF token (for JS to read)
+     */
+    public static function csrfMeta()
+    {
+        return '<meta name="csrf-token" content="' . htmlspecialchars(self::generateCsrfToken()) . '">';
+    }
+
+    /**
      * Validate an email address
      *
      * @param string $email Email address to validate

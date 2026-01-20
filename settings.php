@@ -1,13 +1,10 @@
 <?php
-session_start();
+require_once 'src/Session.php';
 require_once 'src/User.php';
 require_once 'src/Utils.php';
 
-// Auth Check
-if (!isset($_SESSION['user_id'])) {
-    header('Location: login.php');
-    exit;
-}
+Session::start();
+Session::requireAuth();
 
 $userRepo = new User();
 $user = $userRepo->findByEmail($_SESSION['user_email']);
