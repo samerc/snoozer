@@ -77,6 +77,14 @@ class Utils
     }
 
     /**
+     * Get the mail domain for snoozer addresses
+     */
+    public static function getMailDomain()
+    {
+        return $_ENV['MAIL_DOMAIN'] ?? 'snoozer.cloud';
+    }
+
+    /**
      * Parse a time expression and return a future timestamp.
      * Handles rolling forward if the parsed time is in the past.
      *

@@ -1,11 +1,16 @@
 <?php
+require_once 'Utils.php';
 
 class Mailer
 {
     private $from;
 
-    public function __construct($from = "SnoozeR <noreply@snoozer.cloud>")
+    public function __construct($from = null)
     {
+        if ($from === null) {
+            $domain = Utils::getMailDomain();
+            $from = "Snoozer <noreply@{$domain}>";
+        }
         $this->from = $from;
     }
 

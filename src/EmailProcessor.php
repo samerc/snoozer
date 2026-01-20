@@ -195,9 +195,10 @@ class EmailProcessor
 
     private function sendNdr($to, $badEmail)
     {
+        $domain = Utils::getMailDomain();
         $body = $this->getEmailWrapper("Trouble in paradise", "
             <p>I received your email sent to <strong>" . htmlspecialchars($badEmail) . "</strong>, but I'm not sure what you want me to do with it.</p>
-            <p>Try using a supported time format like <code>tomorrow@snoozer.cloud</code> or <code>2hours@snoozer.cloud</code>.</p>
+            <p>Try using a supported time format like <code>tomorrow@{$domain}</code> or <code>2hours@{$domain}</code>.</p>
         ");
         $this->mailer->send($to, "Trouble in paradise", $body);
     }

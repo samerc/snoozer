@@ -2,6 +2,7 @@
 require_once 'User.php';
 require_once 'EmailRepository.php';
 require_once 'Mailer.php';
+require_once 'Utils.php';
 
 class EmailIngestor
 {
@@ -100,30 +101,34 @@ class EmailIngestor
 
     private function extractSnoozerAddress($header)
     {
-        // Legacy get_address logic
-        preg_match_all("/[\._a-zA-Z0-9-]+@snoozer.cloud/i", $header, $matches);
+        $domain = preg_quote(Utils::getMailDomain(), '/');
+        preg_match_all("/[\._a-zA-Z0-9-]+@{$domain}/i", $header, $matches);
         $addresses = array_unique($matches[0]);
-        $bccAddress = "";
+        $targetAddress = "";
         foreach ($addresses as $address) {
-            if ($address != "catch@snoozer.cloud") {
-                $bccAddress = $address;
+            // Skip catch-all address
+            if (stripos($address, 'catch@') !== 0) {
+                $targetAddress = $address;
+                break;
             }
         }
-        return $bccAddress;
+        return $targetAddress;
     }
 
     private function sendWelcomeEmail($to, $name)
     {
+        $domain = Utils::getMailDomain();
         $body = '<div>
-                    <h2 style="text-align: center;"><span style="text-align: center; color: #57983c;">Hey&nbsp;' . $name . '</span></h2>
+                    <h2 style="text-align: center;"><span style="color: #57983c;">Hey ' . htmlspecialchars($name) . '</span></h2>
                  </div>
                  <div>
-                    <h1 style="text-align: center;"><span style="text-align: center; color: #7d3c98;"><strong>Welcome to snoozer.cloud</strong></span></h1>
+                    <h1 style="text-align: center;"><span style="color: #7d3c98;"><strong>Welcome to Snoozer</strong></span></h1>
                  </div>
                  <div>
                     <p>Welcome to the family!</p>
-                 </div>'; // Simplified welcome email for migration, user can copy full HTML later if needed or we can pull from file
+                    <p>Send emails to addresses like <code>tomorrow@' . htmlspecialchars($domain) . '</code> to schedule reminders.</p>
+                 </div>';
 
-        $this->mailer->send($to, "Welcome to SnoozeR", $body);
+        $this->mailer->send($to, "Welcome to Snoozer", $body);
     }
 }

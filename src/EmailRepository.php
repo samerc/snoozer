@@ -94,8 +94,8 @@ class EmailRepository
         $status = EmailStatus::PROCESSED;
         $sql = "SELECT * FROM emails
                 WHERE Subject LIKE ?
-                AND toaddress <> 'check@snoozer.cloud'
-                AND toaddress <> 'search@snoozer.cloud'
+                AND toaddress NOT LIKE 'check@%'
+                AND toaddress NOT LIKE 'search@%'
                 AND fromaddress = ?
                 AND processed = {$status}
                 ORDER BY actiontimestamp";

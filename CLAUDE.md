@@ -64,8 +64,10 @@ EmailProcessor interprets addresses like:
 
 Environment variables in `.env`:
 - `DB_HOST`, `DB_USER`, `DB_PASS`, `DB_NAME` - MySQL connection
-- `IMAP_SERVER`, `IMAP_USER`, `IMAP_PASS` - Email ingestion
-- `APP_URL` - Base URL for action links in emails (e.g., `https://app.snoozer.cloud`)
+- `IMAP_SERVER`, `IMAP_USER`, `IMAP_PASS` - Email ingestion (IMAP mode)
+- `MAILGUN_API_KEY`, `MAILGUN_DOMAIN` - Email ingestion (Mailgun mode)
+- `APP_URL` - Base URL for web app (e.g., `https://app.snoozeme.app`)
+- `MAIL_DOMAIN` - Domain for snoozer email addresses (e.g., `snoozeme.app`)
 
 ## Database Tables
 

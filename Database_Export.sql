@@ -4,6 +4,32 @@
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
+-- --------------------------
+--
+-- Table structure for table `login_attempts`
+--
+
+DROP TABLE IF EXISTS `login_attempts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `login_attempts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `attempt_key` varchar(255) NOT NULL,
+  `attempted_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_attempt_key` (`attempt_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `login_attempts`
+--
+
+LOCK TABLES `login_attempts` WRITE;
+/*!40000 ALTER TABLE `login_attempts` DISABLE KEYS */;
+/*!40000 ALTER TABLE `login_attempts` ENABLE KEYS */;
+UNLOCK TABLES;
+
 -- ----------------------------
 -- Table: users
 -- ----------------------------
