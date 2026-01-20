@@ -3,6 +3,7 @@ require_once 'src/Session.php';
 require_once 'src/User.php';
 require_once 'src/Utils.php';
 require_once 'src/RateLimiter.php';
+require_once 'src/AuditLog.php';
 
 Session::start();
 
@@ -35,6 +36,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($user) {
                     // Clear rate limit on successful login
                     $rateLimiter->clear($rateLimitKey);
+
+                    // Log successful login
+                    $auditLog = new AuditLog();
+                    $auditLog->log(
+                        AuditLog::LOGIN_SUCCESS,
+                        $user['ID'],
+                        $user['email'],
+                        $user['ID'],
+                        'user'
+                    );
 
                     // Regenerate session ID to prevent session fixation
                     session_regenerate_id(true);

@@ -84,6 +84,12 @@ class EmailRepository
         return $rows[0] ?? null;
     }
 
+    public function existsByMessageId($messageId)
+    {
+        $rows = $this->db->fetchAll("SELECT ID FROM emails WHERE message_id = ? LIMIT 1", [$messageId]);
+        return !empty($rows);
+    }
+
     public function findReminder($email, $subject)
     {
         // Legacy regex replacement logic to clean subject

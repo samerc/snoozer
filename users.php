@@ -2,9 +2,12 @@
 require_once 'src/Session.php';
 require_once 'src/User.php';
 require_once 'src/Utils.php';
+require_once 'src/AuditLog.php';
 
 Session::start();
 Session::requireAdmin();
+
+$auditLog = new AuditLog();
 
 $userRepo = new User();
 $adminUser = $userRepo->findByEmail($_SESSION['user_email']);
@@ -41,18 +44,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($newUser && !empty($password)) {
                     $userRepo->update($newUser['ID'], $name, $email, $password, $role);
                 }
+                // Log user creation
+                $auditLog->logFromSession(
+                    AuditLog::USER_CREATED,
+                    $newUser['ID'] ?? null,
+                    'user',
+                    ['name' => $name, 'email' => $email, 'role' => $role]
+                );
                 $message = "User created successfully.";
             } else {
                 $error = "Failed to create user (Email might exist).";
             }
         } elseif ($action === 'update') {
+            $targetUser = $userRepo->getById($userId);
             $userRepo->update($userId, $name, $email, !empty($password) ? $password : null, $role);
+            // Log user update
+            $changes = ['name' => $name, 'email' => $email, 'role' => $role];
+            if (!empty($password)) {
+                $changes['password_changed'] = true;
+            }
+            $auditLog->logFromSession(
+                AuditLog::USER_UPDATED,
+                $userId,
+                'user',
+                ['changes' => $changes, 'previous_email' => $targetUser['email'] ?? null]
+            );
             $message = "User updated successfully.";
         } elseif ($action === 'reset_password') {
             $userId = $_POST['user_id'] ?? '';
             if ($userId) {
+                $targetUser = $userRepo->getById($userId);
                 $newPassword = substr(str_shuffle('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*'), 0, 10);
                 $userRepo->updatePassword($userId, $newPassword);
+                // Log password reset
+                $auditLog->logFromSession(
+                    AuditLog::PASSWORD_RESET,
+                    $userId,
+                    'user',
+                    ['target_email' => $targetUser['email'] ?? null]
+                );
                 $message = "Password reset successfully. The new password is: <strong>" . htmlspecialchars($newPassword) . "</strong>";
             }
         }

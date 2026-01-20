@@ -67,4 +67,39 @@ class Database
         $stmt->close();
         return $data;
     }
+
+    /**
+     * Begin a database transaction.
+     */
+    public function beginTransaction()
+    {
+        $this->mysqli->autocommit(false);
+        $this->mysqli->begin_transaction();
+    }
+
+    /**
+     * Commit the current transaction.
+     */
+    public function commit()
+    {
+        $this->mysqli->commit();
+        $this->mysqli->autocommit(true);
+    }
+
+    /**
+     * Rollback the current transaction.
+     */
+    public function rollback()
+    {
+        $this->mysqli->rollback();
+        $this->mysqli->autocommit(true);
+    }
+
+    /**
+     * Get the last inserted ID.
+     */
+    public function lastInsertId()
+    {
+        return $this->mysqli->insert_id;
+    }
 }

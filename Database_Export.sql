@@ -4,32 +4,6 @@
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
--- --------------------------
---
--- Table structure for table `login_attempts`
---
-
-DROP TABLE IF EXISTS `login_attempts`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8 */;
-CREATE TABLE `login_attempts` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `attempt_key` varchar(255) NOT NULL,
-  `attempted_at` datetime NOT NULL,
-  PRIMARY KEY (`id`),
-  KEY `idx_attempt_key` (`attempt_key`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Dumping data for table `login_attempts`
---
-
-LOCK TABLES `login_attempts` WRITE;
-/*!40000 ALTER TABLE `login_attempts` DISABLE KEYS */;
-/*!40000 ALTER TABLE `login_attempts` ENABLE KEYS */;
-UNLOCK TABLES;
-
 -- ----------------------------
 -- Table: users
 -- ----------------------------
@@ -148,6 +122,27 @@ CREATE TABLE `login_attempts` (
   PRIMARY KEY (`id`),
   INDEX `idx_attempt_key` (`attempt_key`),
   INDEX `idx_attempted_at` (`attempted_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ----------------------------
+-- Table: audit_logs (Admin action tracking)
+-- ----------------------------
+DROP TABLE IF EXISTS `audit_logs`;
+CREATE TABLE `audit_logs` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `action` varchar(50) NOT NULL,
+  `actor_id` int(11) DEFAULT NULL,
+  `actor_email` varchar(255) DEFAULT NULL,
+  `target_id` int(11) DEFAULT NULL,
+  `target_type` varchar(50) DEFAULT NULL,
+  `details` text DEFAULT NULL,
+  `ip_address` varchar(45) DEFAULT NULL,
+  `created_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `idx_action` (`action`),
+  INDEX `idx_actor_id` (`actor_id`),
+  INDEX `idx_target` (`target_type`, `target_id`),
+  INDEX `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 SET FOREIGN_KEY_CHECKS = 1;

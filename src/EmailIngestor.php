@@ -1,6 +1,7 @@
 <?php
 require_once 'User.php';
 require_once 'EmailRepository.php';
+require_once 'Database.php';
 require_once 'Mailer.php';
 require_once 'Utils.php';
 
@@ -9,6 +10,7 @@ class EmailIngestor
     private $userRepo;
     private $emailRepo;
     private $mailer;
+    private $db;
     private $server;
     private $username;
     private $password;
@@ -18,6 +20,7 @@ class EmailIngestor
         $this->userRepo = $userRepo ?? new User();
         $this->emailRepo = $emailRepo ?? new EmailRepository();
         $this->mailer = $mailer ?? new Mailer();
+        $this->db = Database::getInstance();
 
         // Load env if not loaded, though Database likely loaded it
         if (!isset($_ENV['IMAP_SERVER'])) {
@@ -76,11 +79,26 @@ class EmailIngestor
             $messageId = $header->message_id;
             $timestamp = $header->udate;
 
+            // Skip if already processed (prevents duplicates if IMAP delete failed previously)
+            if ($this->emailRepo->existsByMessageId($messageId)) {
+                imap_delete($mbox, $i);
+                continue;
+            }
+
+            // Use transaction to ensure data integrity
             try {
+                $this->db->beginTransaction();
+
                 $this->emailRepo->create($messageId, $fromEmail, $toEmail, $safeRawHeader, $subject, $timestamp, $sslKey);
+
+                $this->db->commit();
+
+                // Only delete from IMAP after successful database insert
                 imap_delete($mbox, $i);
             } catch (Exception $e) {
-                error_log("Failed to ingest email $i: " . $e->getMessage());
+                $this->db->rollback();
+                error_log("Failed to ingest email $i (message_id: $messageId): " . $e->getMessage());
+                // Don't delete from IMAP - email will be retried on next run
             }
         }
 

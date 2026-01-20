@@ -3,11 +3,13 @@ require_once 'src/Session.php';
 require_once 'src/User.php';
 require_once 'src/Database.php';
 require_once 'src/Utils.php';
+require_once 'src/AuditLog.php';
 
 Session::start();
 Session::requireAdmin();
 
 $db = Database::getInstance();
+$auditLog = new AuditLog();
 $message = '';
 $error = '';
 
@@ -24,6 +26,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['slug'])) {
             $db->query(
                 "UPDATE email_templates SET subject = ?, body = ? WHERE slug = ?",
                 [$subject, $body, $slug]
+            );
+            // Log template update
+            $auditLog->logFromSession(
+                AuditLog::TEMPLATE_UPDATED,
+                null,
+                'template',
+                ['slug' => $slug, 'subject' => $subject]
             );
             $message = "Template '$slug' updated successfully.";
         } catch (Exception $e) {

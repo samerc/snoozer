@@ -13,6 +13,7 @@
 
 require_once 'User.php';
 require_once 'EmailRepository.php';
+require_once 'Database.php';
 require_once 'Mailer.php';
 
 class EmailIngestor
@@ -20,6 +21,7 @@ class EmailIngestor
     private $userRepo;
     private $emailRepo;
     private $mailer;
+    private $db;
     private $apiKey;
     private $domain;
     private $apiBase = 'https://api.mailgun.net/v3';
@@ -29,6 +31,7 @@ class EmailIngestor
         $this->userRepo = $userRepo ?? new User();
         $this->emailRepo = $emailRepo ?? new EmailRepository();
         $this->mailer = $mailer ?? new Mailer();
+        $this->db = Database::getInstance();
 
         // Load env if not loaded
         if (!isset($_ENV['MAILGUN_API_KEY'])) {
@@ -126,24 +129,41 @@ class EmailIngestor
             $this->userRepo->create($fromName, $fromEmail);
         }
 
+        // Skip if already processed (prevents duplicates if Mailgun delete failed previously)
+        if ($this->emailRepo->existsByMessageId($messageId)) {
+            $this->deleteStoredMessage($storageUrl);
+            error_log("Skipping duplicate message: {$messageId}");
+            return;
+        }
+
         // Generate SSL key for this email
         $sslKey = openssl_random_pseudo_bytes(32);
 
-        // Store in database
-        $this->emailRepo->create(
-            $messageId,
-            $fromEmail,
-            $toEmail,
-            $rawHeader,
-            $subject,
-            $timestamp,
-            $sslKey
-        );
+        // Use transaction to ensure data integrity
+        $this->db->beginTransaction();
 
-        // Delete from Mailgun storage after successful processing
-        $this->deleteStoredMessage($storageUrl);
+        try {
+            // Store in database
+            $this->emailRepo->create(
+                $messageId,
+                $fromEmail,
+                $toEmail,
+                $rawHeader,
+                $subject,
+                $timestamp,
+                $sslKey
+            );
 
-        error_log("Processed email from {$fromEmail} to {$toEmail}");
+            $this->db->commit();
+
+            // Delete from Mailgun storage after successful database insert
+            $this->deleteStoredMessage($storageUrl);
+
+            error_log("Processed email from {$fromEmail} to {$toEmail}");
+        } catch (Exception $e) {
+            $this->db->rollback();
+            throw $e; // Re-throw to be caught by outer handler
+        }
     }
 
     /**

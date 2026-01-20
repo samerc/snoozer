@@ -16,6 +16,12 @@ class User
         return $rows[0] ?? null;
     }
 
+    public function getById($id)
+    {
+        $rows = $this->db->fetchAll("SELECT * FROM users WHERE ID = ? LIMIT 1", [$id], 'i');
+        return $rows[0] ?? null;
+    }
+
 
     public function create($name, $email, $role = 'user')
     {

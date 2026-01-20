@@ -29,10 +29,11 @@ mysql -u root -p < Database_Export.sql
 
 ### Core Classes (src/)
 
-- **Database.php** - MySQL singleton connection with prepared statements
+- **Database.php** - MySQL singleton connection with prepared statements and transaction support
 - **User.php** - User CRUD, authentication (bcrypt), password management
 - **Session.php** - Secure session management (timeout, secure cookies, security headers)
-- **EmailIngestor.php** - IMAP mailbox connection, email parsing, auto-creates users on first email
+- **AuditLog.php** - Admin action logging (user changes, password resets, template updates, logins)
+- **EmailIngestor.php** - IMAP mailbox connection, email parsing with transaction safety
 - **EmailIngestorMailgun.php** - Alternative ingestor using Mailgun API (for environments without IMAP)
 - **EmailProcessor.php** - Main business logic: interprets time expressions, sends reminders and NDRs
 - **EmailRepository.php** - Data access layer for emails table
@@ -76,6 +77,8 @@ Environment variables in `.env`:
 - `emails` - Reminder queue with message_id, timestamps, processing status
 - `email_templates` - Customizable email templates (wrapper, reminder)
 - `emailCategory` - Kanban board categories
+- `login_attempts` - Rate limiting tracking for brute force protection
+- `audit_logs` - Admin action audit trail (user changes, password resets, logins)
 
 ## Security
 
@@ -86,6 +89,8 @@ Environment variables in `.env`:
 - **SQL Injection** - Prepared statements throughout via Database class
 - **Action URL Security** - AES-256-CBC encrypted message IDs with per-email SSL keys
 - **Rate Limiting** - Login attempts limited to 5 per 15 minutes per IP via RateLimiter class
+- **Audit Logging** - Admin actions logged via AuditLog class (user CRUD, password resets, template changes, logins)
+- **Transaction Safety** - Email ingestion uses database transactions to prevent data loss
 
 ## Key Technical Notes
 
