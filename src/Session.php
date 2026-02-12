@@ -26,10 +26,11 @@ class Session
         // Content Security Policy
         // Allow scripts/styles from self and CDNs used by the app
         $csp = "default-src 'self'; " .
-            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " .
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://stackpath.bootstrapcdn.com; " .
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://code.jquery.com https://cdnjs.cloudflare.com https://stackpath.bootstrapcdn.com; " .
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://stackpath.bootstrapcdn.com https://cdnjs.cloudflare.com; " .
             "font-src 'self' https://fonts.gstatic.com; " .
             "img-src 'self' data:; " .
+            "connect-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://stackpath.bootstrapcdn.com; " .
             "frame-ancestors 'self';";
         header("Content-Security-Policy: $csp");
 

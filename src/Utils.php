@@ -102,13 +102,13 @@ class Utils
     public static function getActionUrl($id, $messageId, $action, $time, $sslKey)
     {
         $vkey = rawurlencode(self::dataEncrypt($messageId, $sslKey));
-        $domain = $_ENV['APP_URL'] ?? 'https://app.snoozer.cloud';
+        $domain = $_ENV['APP_URL'] ?? 'https://web.snoozer.cloud';
         return "$domain/actions/exec.php?ID=$id&a=$action&t=$time&vkey=$vkey";
     }
 
     public static function getAppUrl()
     {
-        return $_ENV['APP_URL'] ?? 'https://app.snoozer.cloud';
+        return $_ENV['APP_URL'] ?? 'https://web.snoozer.cloud';
     }
 
     /**
@@ -188,5 +188,17 @@ class Utils
         if (!$full)
             $string = array_slice($string, 0, 1);
         return $string ? implode(', ', $string) . ($diff->invert ? ' ago' : ' remaining') : 'just now';
+    }
+
+    /**
+     * Get the client's IP address.
+     */
+    public static function getClientIp()
+    {
+        if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+            $ips = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
+            return trim($ips[0]);
+        }
+        return $_SERVER['REMOTE_ADDR'] ?? 'unknown';
     }
 }

@@ -20,7 +20,7 @@ class EmailRepository
         return $this->db->fetchAll($sql, [$nowTimestamp], 'i');
     }
 
-    public function getUpcomingForUser($userEmail)
+    public function getUpcomingForUser($userEmail, $limit = null, $offset = 0)
     {
         $status = EmailStatus::PROCESSED;
         $ignored = EmailStatus::IGNORED;
@@ -30,7 +30,26 @@ class EmailRepository
                 AND processed = {$status}
                 AND actiontimestamp <> {$ignored}
                 ORDER BY actiontimestamp ASC";
+
+        if ($limit !== null) {
+            $sql .= " LIMIT ? OFFSET ?";
+            return $this->db->fetchAll($sql, [$userEmail, $limit, $offset], 'sii');
+        }
+
         return $this->db->fetchAll($sql, [$userEmail]);
+    }
+
+    public function countUpcomingForUser($userEmail)
+    {
+        $status = EmailStatus::PROCESSED;
+        $ignored = EmailStatus::IGNORED;
+        $sql = "SELECT COUNT(*) as total
+                FROM emails
+                WHERE fromaddress = ?
+                AND processed = {$status}
+                AND actiontimestamp <> {$ignored}";
+        $rows = $this->db->fetchAll($sql, [$userEmail]);
+        return $rows[0]['total'] ?? 0;
     }
 
     public function getUnprocessed()

@@ -40,7 +40,9 @@ CREATE TABLE `emails` (
   `sslkey` tinyblob NOT NULL,
   `catID` int(11) DEFAULT NULL,
   PRIMARY KEY (`ID`),
+  INDEX `idx_message_id` (`message_id`(255)),
   INDEX `idx_fromaddress` (`fromaddress`),
+  INDEX `idx_toaddress` (`toaddress`),
   INDEX `idx_processed` (`processed`),
   INDEX `idx_actiontimestamp` (`actiontimestamp`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -146,6 +148,14 @@ CREATE TABLE `audit_logs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+-- ----------------------------
+-- Foreign Key Constraints
+-- ----------------------------
+ALTER TABLE `emails`
+ADD CONSTRAINT `fk_emails_category`
+FOREIGN KEY (`catID`) REFERENCES `emailCategory`(`ID`)
+ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- ----------------------------
 -- Create initial admin user (password: admin123)

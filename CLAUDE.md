@@ -40,6 +40,7 @@ mysql -u root -p < Database_Export.sql
 - **EmailStatus.php** - Constants for email processing states (UNPROCESSED, PROCESSED, REMINDED, IGNORED)
 - **Mailer.php** - PHP mail() wrapper with HTML support and threading headers
 - **RateLimiter.php** - Login brute force protection (tracks failed attempts per IP)
+- **Logger.php** - Structured logging with levels (DEBUG, INFO, WARNING, ERROR, CRITICAL) and JSON context
 - **Utils.php** - CSRF helpers, email validation, time parsing, encryption utilities
 
 ### Request Flow

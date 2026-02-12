@@ -8,39 +8,46 @@ chdir(__DIR__);
 // Load Environment
 require_once 'env_loader.php';
 
-// Autoload Classes (manual for now without Composer autoloader)
+// Autoload Classes
+require_once 'src/Logger.php';
 require_once 'src/EmailIngestor.php';
 require_once 'src/EmailProcessor.php';
+
+// Initialize logger (logs to file if LOG_FILE env is set, otherwise uses error_log)
+$logFile = $_ENV['LOG_FILE'] ?? __DIR__ . '/logs/snoozer.log';
+Logger::init($logFile, Logger::INFO);
 
 // Prevent timeout for long operations
 set_time_limit(300);
 
-$logData = "[" . date('Y-m-d H:i:s') . "] Cron Started.\n";
+Logger::info('Cron cycle started');
 
 try {
     // 1. Ingest New Emails
     $ingestor = new EmailIngestor();
-    // Capture output if any (legacy helper/echo might output)
     ob_start();
     $ingestor->processInbox();
     $output = ob_get_clean();
-    if ($output)
-        $logData .= "Ingest Output: $output\n";
+    if ($output) {
+        Logger::debug('Ingest output', ['output' => $output]);
+    }
+    Logger::info('Email ingestion completed');
 
     // 2. Process Reminders
     $processor = new EmailProcessor();
     ob_start();
     $processor->process();
     $output = ob_get_clean();
-    if ($output)
-        $logData .= "Process Output: $output\n";
+    if ($output) {
+        Logger::debug('Process output', ['output' => $output]);
+    }
+    Logger::info('Email processing completed');
 
-    $logData .= "Cycle Complete.\n";
+    Logger::info('Cron cycle completed successfully');
 
 } catch (Exception $e) {
-    $logData .= "CRITICAL ERROR: " . $e->getMessage() . "\n";
+    Logger::exception($e, 'Cron cycle failed');
+    // Also output to stderr for cron job visibility
+    fwrite(STDERR, "[CRITICAL] Cron failed: " . $e->getMessage() . PHP_EOL);
+    exit(1);
 }
-
-// Output log (can be piped to a file >> run.log)
-echo $logData;
-?>

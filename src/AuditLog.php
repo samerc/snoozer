@@ -51,7 +51,7 @@ class AuditLog
             $targetType,
             $detailsJson,
             $ipAddress
-        ], 'isisss');
+        ], 'sisisss');
     }
 
     /**
@@ -134,10 +134,6 @@ class AuditLog
      */
     private function getClientIp()
     {
-        if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-            $ips = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
-            return trim($ips[0]);
-        }
-        return $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        return Utils::getClientIp();
     }
 }

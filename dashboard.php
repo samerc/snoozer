@@ -23,8 +23,18 @@ if (!empty($user['timezone'])) {
 }
 $_SESSION['user_theme'] = $user['theme'] ?? 'dark';
 
+// Pagination settings
+$perPage = 20;
+$page = max(1, intval($_GET['page'] ?? 1));
+$offset = ($page - 1) * $perPage;
+
 $emailRepo = new EmailRepository();
-$emails = $emailRepo->getUpcomingForUser($currentUserEmail);
+$totalEmails = $emailRepo->countUpcomingForUser($currentUserEmail);
+$totalPages = max(1, ceil($totalEmails / $perPage));
+$page = min($page, $totalPages); // Don't exceed total pages
+$offset = ($page - 1) * $perPage;
+
+$emails = $emailRepo->getUpcomingForUser($currentUserEmail, $perPage, $offset);
 
 ?>
 <!DOCTYPE html>
@@ -75,7 +85,7 @@ $emails = $emailRepo->getUpcomingForUser($currentUserEmail);
     <div class="container">
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h1 class="h3 font-weight-bold">Upcoming Reminders</h1>
-            <span class="badge badge-primary px-3 py-2 rounded-pill"><?php echo count($emails); ?> Scheduled</span>
+            <span class="badge badge-primary px-3 py-2 rounded-pill"><?php echo $totalEmails; ?> Scheduled</span>
         </div>
 
         <div class="glass-panel p-0 overflow-hidden">
@@ -99,7 +109,7 @@ $emails = $emailRepo->getUpcomingForUser($currentUserEmail);
                     <?php else: ?>
                         <?php foreach ($emails as $index => $email): ?>
                             <tr>
-                                <td class="pl-4 align-middle"><?php echo $index + 1; ?></td>
+                                <td class="pl-4 align-middle"><?php echo $offset + $index + 1; ?></td>
                                 <td class="align-middle font-weight-bold"><?php echo htmlspecialchars($email['subject']); ?>
                                 </td>
                                 <td class="align-middle small text-muted"><?php echo date('M d, Y', $email['timestamp']); ?>
@@ -127,6 +137,51 @@ $emails = $emailRepo->getUpcomingForUser($currentUserEmail);
                 </tbody>
             </table>
         </div>
+
+        <?php if ($totalPages > 1): ?>
+        <nav aria-label="Page navigation" class="mt-4">
+            <ul class="pagination justify-content-center">
+                <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>">
+                    <a class="page-link" href="?page=<?php echo $page - 1; ?>" aria-label="Previous">
+                        <span aria-hidden="true">&laquo;</span>
+                    </a>
+                </li>
+                <?php
+                // Show limited page numbers with ellipsis
+                $startPage = max(1, $page - 2);
+                $endPage = min($totalPages, $page + 2);
+
+                if ($startPage > 1): ?>
+                    <li class="page-item"><a class="page-link" href="?page=1">1</a></li>
+                    <?php if ($startPage > 2): ?>
+                        <li class="page-item disabled"><span class="page-link">...</span></li>
+                    <?php endif; ?>
+                <?php endif; ?>
+
+                <?php for ($i = $startPage; $i <= $endPage; $i++): ?>
+                    <li class="page-item <?php echo $i === $page ? 'active' : ''; ?>">
+                        <a class="page-link" href="?page=<?php echo $i; ?>"><?php echo $i; ?></a>
+                    </li>
+                <?php endfor; ?>
+
+                <?php if ($endPage < $totalPages): ?>
+                    <?php if ($endPage < $totalPages - 1): ?>
+                        <li class="page-item disabled"><span class="page-link">...</span></li>
+                    <?php endif; ?>
+                    <li class="page-item"><a class="page-link" href="?page=<?php echo $totalPages; ?>"><?php echo $totalPages; ?></a></li>
+                <?php endif; ?>
+
+                <li class="page-item <?php echo $page >= $totalPages ? 'disabled' : ''; ?>">
+                    <a class="page-link" href="?page=<?php echo $page + 1; ?>" aria-label="Next">
+                        <span aria-hidden="true">&raquo;</span>
+                    </a>
+                </li>
+            </ul>
+            <p class="text-center text-muted small">
+                Showing <?php echo $offset + 1; ?>-<?php echo min($offset + $perPage, $totalEmails); ?> of <?php echo $totalEmails; ?> reminders
+            </p>
+        </nav>
+        <?php endif; ?>
     </div>
 
     <script>

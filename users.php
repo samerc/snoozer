@@ -41,17 +41,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'create') {
             if ($userRepo->create($name, $email, $role)) {
                 $newUser = $userRepo->findByEmail($email);
-                if ($newUser && !empty($password)) {
-                    $userRepo->update($newUser['ID'], $name, $email, $password, $role);
+
+                if ($newUser) {
+                    // Generate password setup token
+                    require_once 'src/Mailer.php';
+                    $token = $userRepo->generatePasswordSetupToken($newUser['ID']);
+
+                    // Send password setup email
+                    $mailer = new Mailer();
+                    $emailSent = $mailer->sendPasswordSetupEmail($email, $name, $token);
+
+                    // Log user creation
+                    $auditLog->logFromSession(
+                        AuditLog::USER_CREATED,
+                        $newUser['ID'],
+                        'user',
+                        ['name' => $name, 'email' => $email, 'role' => $role, 'email_sent' => $emailSent]
+                    );
+
+                    if ($emailSent) {
+                        $message = "User created successfully. A password setup email has been sent to {$email}.";
+                    } else {
+                        $message = "User created, but failed to send password setup email. Please check email configuration.";
+                    }
+                } else {
+                    $error = "User created but could not retrieve user data.";
                 }
-                // Log user creation
-                $auditLog->logFromSession(
-                    AuditLog::USER_CREATED,
-                    $newUser['ID'] ?? null,
-                    'user',
-                    ['name' => $name, 'email' => $email, 'role' => $role]
-                );
-                $message = "User created successfully.";
             } else {
                 $error = "Failed to create user (Email might exist).";
             }
@@ -218,8 +233,8 @@ $users = $userRepo->getAll();
                             </select>
                         </div>
                         <div class="form-group">
-                            <label class="font-weight-bold">Password <small class="text-muted">(Leave blank to keep
-                                    unchanged)</small></label>
+                            <label class="font-weight-bold">Password <small class="text-muted">(Optional - new users
+                                    will receive setup email)</small></label>
                             <input type="password" name="password" id="password" class="form-control rounded-pill px-3">
                         </div>
                     </div>
@@ -256,7 +271,7 @@ $users = $userRepo->getAll();
                 document.getElementById('name').value = '';
                 document.getElementById('email').value = '';
                 document.getElementById('role').value = 'user';
-                document.getElementById('password').required = true;
+                document.getElementById('password').required = false; // Password is optional - user will receive setup email
             } else {
                 document.getElementById('modalTitle').innerText = 'Edit User';
                 document.getElementById('user_id').value = user.ID;

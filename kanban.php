@@ -24,7 +24,12 @@ if (!empty($user['timezone'])) {
 $_SESSION['user_theme'] = $user['theme'] ?? 'dark';
 
 $emailRepo = new EmailRepository();
-$emails = $emailRepo->getUpcomingForUser($currentUserEmail);
+
+// Limit total items for performance (50 per column max)
+$maxItems = 150;
+$totalCount = $emailRepo->countUpcomingForUser($currentUserEmail);
+$emails = $emailRepo->getUpcomingForUser($currentUserEmail, $maxItems);
+$hasMore = $totalCount > $maxItems;
 
 $today = [];
 $week = [];
@@ -188,6 +193,18 @@ foreach ($emails as $email) {
             </div>
         </div>
     </nav>
+
+    <?php if ($hasMore): ?>
+    <div class="container-fluid">
+        <div class="alert alert-info alert-dismissible fade show mx-3 mb-0" role="alert">
+            Showing <?php echo $maxItems; ?> of <?php echo $totalCount; ?> reminders.
+            <a href="dashboard.php" class="alert-link">View all in Dashboard</a> for full list with pagination.
+            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                <span aria-hidden="true">&times;</span>
+            </button>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <div class="container-fluid kanban-container">
         <div class="row">

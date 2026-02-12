@@ -93,4 +93,80 @@ class User
         $sql = "SELECT * FROM users";
         return $this->db->fetchAll($sql);
     }
+
+    /**
+     * Generate a secure password setup token for a user
+     * Token expires in 48 hours
+     * 
+     * @param int $userId
+     * @return string The generated token
+     */
+    public function generatePasswordSetupToken($userId)
+    {
+        // Generate cryptographically secure 64-character token
+        $token = bin2hex(random_bytes(32));
+
+        // Set expiration to 48 hours from now
+        $expiresAt = date('Y-m-d H:i:s', strtotime('+48 hours'));
+
+        $sql = "UPDATE users SET password_setup_token = ?, password_setup_token_expires = ? WHERE ID = ?";
+        $this->db->query($sql, [$token, $expiresAt, $userId], 'ssi');
+
+        return $token;
+    }
+
+    /**
+     * Find user by password setup token (if valid and not expired)
+     * 
+     * @param string $token
+     * @return array|null User data if token is valid, null otherwise
+     */
+    public function findByPasswordSetupToken($token)
+    {
+        $sql = "SELECT * FROM users 
+                WHERE password_setup_token = ? 
+                AND password_setup_token_expires > NOW() 
+                LIMIT 1";
+        $rows = $this->db->fetchAll($sql, [$token], 's');
+        return $rows[0] ?? null;
+    }
+
+    /**
+     * Clear password setup token for a user
+     * 
+     * @param int $userId
+     */
+    public function clearPasswordSetupToken($userId)
+    {
+        $sql = "UPDATE users SET password_setup_token = NULL, password_setup_token_expires = NULL WHERE ID = ?";
+        $this->db->query($sql, [$userId], 'i');
+    }
+
+    /**
+     * Set password using a valid setup token
+     * Clears the token after setting password
+     * 
+     * @param string $token
+     * @param string $password
+     * @return bool True if successful, false if token invalid
+     */
+    public function setPasswordWithToken($token, $password)
+    {
+        $user = $this->findByPasswordSetupToken($token);
+
+        if (!$user) {
+            return false;
+        }
+
+        // Set password and clear token in a single operation
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+        $sql = "UPDATE users 
+                SET password = ?, 
+                    password_setup_token = NULL, 
+                    password_setup_token_expires = NULL 
+                WHERE ID = ?";
+        $this->db->query($sql, [$hash, $user['ID']], 'si');
+
+        return true;
+    }
 }

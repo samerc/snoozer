@@ -15,6 +15,7 @@ require_once 'User.php';
 require_once 'EmailRepository.php';
 require_once 'Database.php';
 require_once 'Mailer.php';
+require_once 'Logger.php';
 
 class EmailIngestor
 {
@@ -42,7 +43,10 @@ class EmailIngestor
         $this->domain = $_ENV['MAILGUN_DOMAIN'] ?? '';
 
         if (empty($this->apiKey) || empty($this->domain)) {
-            error_log("CRITICAL: MAILGUN_API_KEY or MAILGUN_DOMAIN not set in .env");
+            Logger::critical('Mailgun credentials not configured', [
+                'has_api_key' => !empty($this->apiKey),
+                'has_domain' => !empty($this->domain)
+            ]);
         }
     }
 
@@ -52,9 +56,11 @@ class EmailIngestor
     public function processInbox()
     {
         if (empty($this->apiKey) || empty($this->domain)) {
-            error_log("CRITICAL: Mailgun credentials not configured");
+            Logger::critical('Mailgun credentials not configured');
             return;
         }
+
+        Logger::debug('Fetching stored events from Mailgun', ['domain' => $this->domain]);
 
         // Fetch stored message events from Mailgun
         $events = $this->fetchStoredEvents();
@@ -67,9 +73,14 @@ class EmailIngestor
             try {
                 $this->processStoredMessage($event);
             } catch (Exception $e) {
-                error_log("Failed to process Mailgun message: " . $e->getMessage());
+                Logger::error('Failed to process Mailgun message', [
+                    'error' => $e->getMessage(),
+                    'event_id' => $event['id'] ?? 'unknown'
+                ]);
             }
         }
+
+        Logger::info('Mailgun inbox processed', ['events_found' => count($events)]);
     }
 
     /**
@@ -98,7 +109,7 @@ class EmailIngestor
     private function processStoredMessage($event)
     {
         if (!isset($event['storage']['url'])) {
-            error_log("No storage URL in event");
+            Logger::warning('No storage URL in event', ['event' => $event]);
             return;
         }
 
@@ -108,7 +119,7 @@ class EmailIngestor
         $message = $this->apiRequest($storageUrl);
 
         if (!$message) {
-            error_log("Failed to fetch message from storage");
+            Logger::error('Failed to fetch message from Mailgun storage', ['storage_url' => $storageUrl]);
             return;
         }
 
@@ -132,7 +143,7 @@ class EmailIngestor
         // Skip if already processed (prevents duplicates if Mailgun delete failed previously)
         if ($this->emailRepo->existsByMessageId($messageId)) {
             $this->deleteStoredMessage($storageUrl);
-            error_log("Skipping duplicate message: {$messageId}");
+            Logger::debug('Skipping duplicate message', ['message_id' => $messageId]);
             return;
         }
 
@@ -159,7 +170,11 @@ class EmailIngestor
             // Delete from Mailgun storage after successful database insert
             $this->deleteStoredMessage($storageUrl);
 
-            error_log("Processed email from {$fromEmail} to {$toEmail}");
+            Logger::info('Email ingested from Mailgun', [
+                'from' => $fromEmail,
+                'to' => $toEmail,
+                'subject' => substr($subject, 0, 50)
+            ]);
         } catch (Exception $e) {
             $this->db->rollback();
             throw $e; // Re-throw to be caught by outer handler
@@ -184,7 +199,10 @@ class EmailIngestor
         curl_close($ch);
 
         if ($httpCode !== 200) {
-            error_log("Failed to delete message from Mailgun storage: HTTP {$httpCode}");
+            Logger::warning('Failed to delete message from Mailgun storage', [
+                'http_code' => $httpCode,
+                'storage_url' => $storageUrl
+            ]);
         }
     }
 
@@ -207,12 +225,16 @@ class EmailIngestor
         curl_close($ch);
 
         if ($error) {
-            error_log("Mailgun API curl error: {$error}");
+            Logger::error('Mailgun API curl error', ['error' => $error, 'url' => $url]);
             return null;
         }
 
         if ($httpCode !== 200) {
-            error_log("Mailgun API error: HTTP {$httpCode} - {$response}");
+            Logger::error('Mailgun API error', [
+                'http_code' => $httpCode,
+                'response' => substr($response, 0, 200),
+                'url' => $url
+            ]);
             return null;
         }
 

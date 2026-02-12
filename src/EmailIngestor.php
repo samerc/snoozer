@@ -4,6 +4,7 @@ require_once 'EmailRepository.php';
 require_once 'Database.php';
 require_once 'Mailer.php';
 require_once 'Utils.php';
+require_once 'Logger.php';
 
 class EmailIngestor
 {
@@ -35,16 +36,20 @@ class EmailIngestor
     public function processInbox()
     {
         if (!function_exists('imap_open')) {
-            error_log("CRITICAL: PHP IMAP extension is not enabled. Cannot process inbox.");
+            Logger::critical('PHP IMAP extension is not enabled', ['action' => 'processInbox']);
             return;
         }
 
         $mbox = @imap_open($this->server, $this->username, $this->password);
         if (!$mbox) {
-            // Log error or throw
-            error_log("IMAP Connection failed: " . imap_last_error());
+            Logger::error('IMAP Connection failed', [
+                'server' => $this->server,
+                'error' => imap_last_error()
+            ]);
             return;
         }
+
+        Logger::debug('IMAP connection established', ['server' => $this->server]);
 
         $num = imap_num_msg($mbox);
         for ($i = 1; $i <= $num; $i++) {
@@ -57,8 +62,18 @@ class EmailIngestor
 
             // Check/Create User
             if (!$this->userRepo->findByEmail($fromEmail)) {
-                $this->sendWelcomeEmail($fromEmail, $fromName);
-                $this->userRepo->create($fromName, $fromEmail);
+                if ($this->userRepo->create($fromName, $fromEmail)) {
+                    $newUser = $this->userRepo->findByEmail($fromEmail);
+                    if ($newUser) {
+                        $token = $this->userRepo->generatePasswordSetupToken($newUser['ID']);
+                        $this->mailer->sendPasswordSetupEmail($fromEmail, $fromName, $token);
+
+                        Logger::info('New user auto-registered via email', [
+                            'email' => $fromEmail,
+                            'name' => $fromName
+                        ]);
+                    }
+                }
             }
 
             // Parse To (Target Address logic)
@@ -97,10 +112,17 @@ class EmailIngestor
                 imap_delete($mbox, $i);
             } catch (Exception $e) {
                 $this->db->rollback();
-                error_log("Failed to ingest email $i (message_id: $messageId): " . $e->getMessage());
+                Logger::error('Failed to ingest email', [
+                    'message_num' => $i,
+                    'message_id' => $messageId,
+                    'from' => $fromEmail,
+                    'error' => $e->getMessage()
+                ]);
                 // Don't delete from IMAP - email will be retried on next run
             }
         }
+
+        Logger::info('IMAP inbox processed', ['emails_found' => $num]);
 
         imap_expunge($mbox);
         imap_close($mbox);
@@ -133,20 +155,4 @@ class EmailIngestor
         return $targetAddress;
     }
 
-    private function sendWelcomeEmail($to, $name)
-    {
-        $domain = Utils::getMailDomain();
-        $body = '<div>
-                    <h2 style="text-align: center;"><span style="color: #57983c;">Hey ' . htmlspecialchars($name) . '</span></h2>
-                 </div>
-                 <div>
-                    <h1 style="text-align: center;"><span style="color: #7d3c98;"><strong>Welcome to Snoozer</strong></span></h1>
-                 </div>
-                 <div>
-                    <p>Welcome to the family!</p>
-                    <p>Send emails to addresses like <code>tomorrow@' . htmlspecialchars($domain) . '</code> to schedule reminders.</p>
-                 </div>';
-
-        $this->mailer->send($to, "Welcome to Snoozer", $body);
-    }
 }
