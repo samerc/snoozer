@@ -17,7 +17,8 @@ class Database
         $this->mysqli = new mysqli($host, $user, $pass, $name);
 
         if ($this->mysqli->connect_error) {
-            die("Connection failed: " . $this->mysqli->connect_error);
+            error_log("DB connection failed: " . $this->mysqli->connect_error);
+            die("Database connection error. Please contact the administrator.");
         }
         $this->mysqli->set_charset("utf8");
     }
@@ -39,7 +40,8 @@ class Database
     {
         $stmt = $this->mysqli->prepare($sql);
         if (!$stmt) {
-            throw new Exception("Prepare failed: " . $this->mysqli->error);
+            error_log("DB prepare failed: " . $this->mysqli->error . " | SQL: " . $sql);
+            throw new Exception("A database error occurred.");
         }
 
         if (!empty($params)) {
@@ -50,7 +52,8 @@ class Database
         }
 
         if (!$stmt->execute()) {
-            throw new Exception("Execute failed: " . $stmt->error);
+            error_log("DB execute failed: " . $stmt->error . " | SQL: " . $sql);
+            throw new Exception("A database error occurred.");
         }
 
         return $stmt;

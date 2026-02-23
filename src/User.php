@@ -57,7 +57,7 @@ class User
         $this->db->query($sql, [$hash, $id]);
     }
 
-    public function update($id, $name, $email, $password = null, $role = null, $timezone = null, $theme = null)
+    public function update($id, $name, $email, $password = null, $role = null, $timezone = null, $theme = null, $thread_reminders = null)
     {
         $params = [$name, $email];
         $sql = "UPDATE users SET name = ?, email = ?";
@@ -80,6 +80,11 @@ class User
         if ($theme) {
             $sql .= ", theme = ?";
             $params[] = $theme;
+        }
+
+        if ($thread_reminders !== null) {
+            $sql .= ", thread_reminders = ?";
+            $params[] = (int) $thread_reminders;
         }
 
         $sql .= " WHERE ID = ?";

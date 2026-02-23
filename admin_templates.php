@@ -50,6 +50,7 @@ $adminUser = $userRepo->findByEmail($_SESSION['user_email']);
 
 <head>
     <meta charset="UTF-8">
+    <?php echo Utils::csrfMeta(); ?>
     <title>Email Templates - Snoozer</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.2.1/css/bootstrap.min.css">
@@ -93,6 +94,7 @@ $adminUser = $userRepo->findByEmail($_SESSION['user_email']);
                     <li class="nav-item"><a class="nav-link" href="settings.php">Settings</a></li>
                     <li class="nav-item"><a class="nav-link" href="users.php">Users</a></li>
                     <li class="nav-item active"><a class="nav-link" href="#">Templates</a></li>
+                    <li class="nav-item"><a class="nav-link" href="admin_audit.php">Audit Log</a></li>
                 </ul>
                 <div class="theme-switch-wrapper mr-4">
                     <label class="theme-switch" for="checkbox">
@@ -181,6 +183,7 @@ $adminUser = $userRepo->findByEmail($_SESSION['user_email']);
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
             const toggleSwitch = document.querySelector('.theme-switch input[type="checkbox"]');
             async function switchTheme(e) {
                 const theme = e.target.checked ? 'light' : 'dark';
@@ -188,7 +191,7 @@ $adminUser = $userRepo->findByEmail($_SESSION['user_email']);
                 e.target.closest('.theme-switch-wrapper').querySelector('span').textContent = theme.charAt(0).toUpperCase() + theme.slice(1);
                 await fetch('api/update_theme.php', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ theme })
                 });
             }

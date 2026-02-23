@@ -28,13 +28,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!Utils::validateCsrfToken($_POST['csrf_token'] ?? '')) {
         $error = "Invalid request. Please try again.";
     } else {
-        $timezone = $_POST['timezone'] ?? 'UTC';
-        $password = $_POST['password'] ?? '';
+        $timezone           = $_POST['timezone'] ?? 'UTC';
+        $password           = $_POST['password'] ?? '';
+        $threadReminders    = isset($_POST['thread_reminders']) ? 1 : 0;
+        $defaultReminderHour = (int) ($_POST['default_reminder_hour'] ?? 17);
 
         if (!in_array($timezone, timezone_identifiers_list())) {
             $error = "Invalid Timezone";
+        } elseif ($defaultReminderHour < 0 || $defaultReminderHour > 23) {
+            $error = "Invalid reminder hour (must be 0–23).";
         } else {
-            $userRepo->update($user['ID'], $user['name'], $user['email'], !empty($password) ? $password : null, $user['role'], $timezone);
+            $userRepo->update($user['ID'], $user['name'], $user['email'], !empty($password) ? $password : null, $user['role'], $timezone, null, $threadReminders);
+            $userRepo->updateDefaultReminderTime($user['email'], (string) $defaultReminderHour);
             $message = "Settings updated successfully.";
 
             // Refresh
@@ -51,6 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <head>
     <meta charset="UTF-8">
+    <?php echo Utils::csrfMeta(); ?>
     <title>Settings - Snoozer</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.2.1/css/bootstrap.min.css">
@@ -106,16 +112,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <label class="font-weight-bold">Timezone</label>
                             <select name="timezone" class="form-control rounded-pill px-3">
                                 <?php
-                                $commonTimezones = ['UTC', 'Asia/Beirut', 'Europe/London', 'America/New_York', 'Asia/Dubai', 'Europe/Paris'];
                                 $currentTimezone = $user['timezone'] ?? 'UTC';
-                                if (!in_array($currentTimezone, $commonTimezones))
-                                    $commonTimezones[] = $currentTimezone;
-                                foreach ($commonTimezones as $tz): ?>
-                                    <option value="<?php echo $tz; ?>" <?php echo $currentTimezone === $tz ? 'selected' : ''; ?>>
-                                        <?php echo $tz; ?>
-                                    </option>
+                                $grouped = [];
+                                foreach (timezone_identifiers_list() as $tz) {
+                                    $parts = explode('/', $tz, 2);
+                                    $continent = count($parts) > 1 ? $parts[0] : 'Other';
+                                    $grouped[$continent][] = $tz;
+                                }
+                                ksort($grouped);
+                                foreach ($grouped as $continent => $zones): ?>
+                                    <optgroup label="<?php echo htmlspecialchars($continent); ?>">
+                                        <?php foreach ($zones as $tz): ?>
+                                            <option value="<?php echo $tz; ?>" <?php echo $currentTimezone === $tz ? 'selected' : ''; ?>>
+                                                <?php echo $tz; ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </optgroup>
                                 <?php endforeach; ?>
                             </select>
+                        </div>
+                        <div class="form-group mt-3">
+                            <label class="font-weight-bold">Default Reminder Hour</label>
+                            <input type="number" name="default_reminder_hour" min="0" max="23"
+                                class="form-control rounded-pill px-3"
+                                value="<?php echo (int) ($user['DefaultReminderTime'] ?? 17); ?>">
+                            <small class="text-muted d-block mt-1">
+                                Hour (0–23) used for <code>eod</code> and <code>eow</code> expressions.
+                                Default is 17 (5:00 PM).
+                            </small>
                         </div>
                         <div class="mt-3 p-3 glass-panel" style="background: rgba(0,0,0,0.05); border-radius: 15px;">
                             <small class="text-muted d-block uppercase tracking-wider font-weight-bold mb-1">Current
@@ -129,6 +153,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <input type="password" name="password" class="form-control rounded-pill px-3"
                                 placeholder="New password (keep blank to skip)">
                         </div>
+                        <div class="form-group mt-3">
+                            <label class="font-weight-bold d-block">Reminder Emails</label>
+                            <div class="custom-control custom-switch mt-2">
+                                <input type="checkbox" class="custom-control-input" id="threadReminders"
+                                    name="thread_reminders" <?php echo ($user['thread_reminders'] ?? 1) ? 'checked' : ''; ?>>
+                                <label class="custom-control-label" for="threadReminders">
+                                    Thread reminders to the original email
+                                </label>
+                            </div>
+                            <small class="text-muted d-block mt-1">
+                                When enabled, reminder emails arrive as a reply in the same thread as your original email.
+                            </small>
+                        </div>
                         <div class="mt-4">
                             <button type="submit" class="btn btn-premium btn-block">Apply Changes</button>
                         </div>
@@ -140,6 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
             const toggleSwitch = document.querySelector('.theme-switch input[type="checkbox"]');
             async function switchTheme(e) {
                 const theme = e.target.checked ? 'light' : 'dark';
@@ -147,7 +185,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 e.target.closest('.theme-switch-wrapper').querySelector('span').textContent = theme.charAt(0).toUpperCase() + theme.slice(1);
                 await fetch('api/update_theme.php', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ theme })
                 });
             }

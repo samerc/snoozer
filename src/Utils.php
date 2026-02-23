@@ -86,9 +86,8 @@ class Utils
     public static function dataEncrypt($data, $key)
     {
         // Matches legacy logic: Base64(Encrypted . :: . IV)
-        $encryption_key = $key;
-        $iv = openssl_random_pseudo_bytes(openssl_cipher_iv_length('aes-256-cbc'));
-        $encrypted = openssl_encrypt($data, 'aes-256-cbc', $encryption_key, 0, $iv);
+        $iv = random_bytes(openssl_cipher_iv_length('aes-256-cbc'));
+        $encrypted = openssl_encrypt($data, 'aes-256-cbc', $key, 0, $iv);
         return base64_encode($encrypted . '::' . $iv);
     }
 
@@ -102,13 +101,13 @@ class Utils
     public static function getActionUrl($id, $messageId, $action, $time, $sslKey)
     {
         $vkey = rawurlencode(self::dataEncrypt($messageId, $sslKey));
-        $domain = $_ENV['APP_URL'] ?? 'https://web.snoozer.cloud';
+        $domain = $_ENV['APP_URL'] ?? 'http://localhost:8000';
         return "$domain/actions/exec.php?ID=$id&a=$action&t=$time&vkey=$vkey";
     }
 
     public static function getAppUrl()
     {
-        return $_ENV['APP_URL'] ?? 'https://web.snoozer.cloud';
+        return $_ENV['APP_URL'] ?? 'http://localhost:8000';
     }
 
     /**
@@ -123,14 +122,44 @@ class Utils
      * Parse a time expression and return a future timestamp.
      * Handles rolling forward if the parsed time is in the past.
      *
-     * @param string $timeExpr Time expression (e.g., "tomorrow", "monday", "+2 hours")
+     * Supported formats beyond PHP strtotime defaults:
+     * - "eod"         → today at $defaultHour:00 (tomorrow if already past)
+     * - "eow"         → next Friday at $defaultHour:00
+     * - "next-monday" → "next monday" (hyphens treated as spaces)
+     * - "31dec"       → "31 dec" (digit+month or month+digit without space)
+     *
+     * @param string $timeExpr   Time expression (e.g., "tomorrow", "monday", "31dec", "eod")
      * @param int|null $baseTimestamp Base timestamp for relative parsing (default: now)
+     * @param int $defaultHour   Hour to use for eod/eow (user's DefaultReminderTime, default 17)
      * @return int|false Timestamp or false if parsing fails
      */
-    public static function parseTimeExpression($timeExpr, $baseTimestamp = null)
+    public static function parseTimeExpression($timeExpr, $baseTimestamp = null, $defaultHour = 17)
     {
         $baseTimestamp = $baseTimestamp ?? time();
         $timeExpr = strtolower(trim($timeExpr));
+        $defaultHour = max(0, min(23, (int) $defaultHour));
+
+        // Normalise hyphens to spaces ("next-tuesday" → "next tuesday")
+        $timeExpr = str_replace('-', ' ', $timeExpr);
+
+        // Add space between a digit run and a month name, or vice-versa
+        // Handles "31dec" → "31 dec" and "dec31" → "dec 31"
+        $months = 'jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec';
+        $timeExpr = preg_replace('/(\d+)(' . $months . ')/i', '$1 $2', $timeExpr);
+        $timeExpr = preg_replace('/(' . $months . ')(\d+)/i', '$1 $2', $timeExpr);
+
+        // "eod" — end of (work) day
+        if ($timeExpr === 'eod') {
+            $candidate = mktime($defaultHour, 0, 0);
+            return $candidate > time() ? $candidate : mktime($defaultHour, 0, 0, date('n'), date('j') + 1);
+        }
+
+        // "eow" — end of week (next Friday)
+        if ($timeExpr === 'eow') {
+            $friday = strtotime('friday', $baseTimestamp);
+            $candidate = mktime($defaultHour, 0, 0, date('n', $friday), date('j', $friday), date('Y', $friday));
+            return $candidate > time() ? $candidate : strtotime('+1 week', $candidate);
+        }
 
         // Parse the time expression
         $actionTimestamp = strtotime($timeExpr, $baseTimestamp);
@@ -192,13 +221,26 @@ class Utils
 
     /**
      * Get the client's IP address.
+     * Only trusts proxy headers when the direct connection is from a known
+     * trusted proxy (private/loopback address or TRUSTED_PROXY env var).
      */
     public static function getClientIp()
     {
-        if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $remoteAddr   = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $trustedProxy = $_ENV['TRUSTED_PROXY']  ?? null;
+
+        $isTrusted = $trustedProxy
+            ? ($remoteAddr === $trustedProxy)
+            : (filter_var($remoteAddr, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false);
+
+        if ($isTrusted && !empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
             $ips = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
-            return trim($ips[0]);
+            $ip  = trim($ips[0]);
+            if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                return $ip;
+            }
         }
-        return $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+
+        return filter_var($remoteAddr, FILTER_VALIDATE_IP) ? $remoteAddr : 'unknown';
     }
 }

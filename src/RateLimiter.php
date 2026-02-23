@@ -101,25 +101,40 @@ class RateLimiter
     }
 
     /**
-     * Get client IP address
+     * Get client IP address.
+     *
+     * Proxy headers (X-Forwarded-For, CF-Connecting-IP, etc.) can be spoofed
+     * by any client unless the request actually arrives from a trusted proxy.
+     * We only trust them when REMOTE_ADDR is a private/loopback address (i.e.
+     * the request came through a local reverse proxy) OR when the TRUSTED_PROXY
+     * environment variable explicitly names the proxy's IP.
      */
     public static function getClientIp()
     {
-        $headers = ['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'REMOTE_ADDR'];
+        $remoteAddr    = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $trustedProxy  = $_ENV['TRUSTED_PROXY']  ?? null;
 
-        foreach ($headers as $header) {
-            if (!empty($_SERVER[$header])) {
-                $ip = $_SERVER[$header];
-                // X-Forwarded-For may contain multiple IPs, take the first
-                if (strpos($ip, ',') !== false) {
-                    $ip = trim(explode(',', $ip)[0]);
-                }
-                if (filter_var($ip, FILTER_VALIDATE_IP)) {
-                    return $ip;
+        // Determine whether the direct connection is from a trusted proxy
+        $isTrusted = $trustedProxy
+            ? ($remoteAddr === $trustedProxy)
+            : (filter_var($remoteAddr, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false);
+            // i.e., REMOTE_ADDR is a private/loopback address → behind a local proxy
+
+        if ($isTrusted) {
+            foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP'] as $header) {
+                if (!empty($_SERVER[$header])) {
+                    $ip = $_SERVER[$header];
+                    // X-Forwarded-For may contain a list; take the first (client) entry
+                    if (strpos($ip, ',') !== false) {
+                        $ip = trim(explode(',', $ip)[0]);
+                    }
+                    if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                        return $ip;
+                    }
                 }
             }
         }
 
-        return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        return filter_var($remoteAddr, FILTER_VALIDATE_IP) ? $remoteAddr : '0.0.0.0';
     }
 }

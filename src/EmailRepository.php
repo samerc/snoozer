@@ -14,41 +14,151 @@ class EmailRepository
     public function getPendingActions($nowTimestamp)
     {
         // Emails that have been analyzed and are waiting for the action time
-        $status = EmailStatus::PROCESSED;
-        $ignored = EmailStatus::IGNORED;
-        $sql = "SELECT * FROM emails WHERE processed = {$status} AND actiontimestamp <> {$ignored} AND actiontimestamp <= ?";
-        return $this->db->fetchAll($sql, [$nowTimestamp], 'i');
+        $sql = "SELECT * FROM emails WHERE processed = ? AND actiontimestamp <> ? AND actiontimestamp <= ?";
+        return $this->db->fetchAll($sql, [EmailStatus::PROCESSED, EmailStatus::IGNORED, $nowTimestamp], 'iii');
     }
 
-    public function getUpcomingForUser($userEmail, $limit = null, $offset = 0)
+    public function getUpcomingForUser($userEmail, $limit = null, $offset = 0, $subject = null)
     {
-        $status = EmailStatus::PROCESSED;
-        $ignored = EmailStatus::IGNORED;
-        $sql = "SELECT ID, message_id, fromaddress, toaddress, subject, timestamp, actiontimestamp, sslkey
+        $params = [$userEmail, EmailStatus::PROCESSED, EmailStatus::IGNORED];
+        $types  = 'sii';
+
+        $sql = "SELECT ID, message_id, fromaddress, toaddress, subject, timestamp, actiontimestamp, sslkey, recurrence, catID
                 FROM emails
                 WHERE fromaddress = ?
-                AND processed = {$status}
-                AND actiontimestamp <> {$ignored}
-                ORDER BY actiontimestamp ASC";
+                AND processed = ?
+                AND actiontimestamp <> ?";
+
+        if ($subject !== null && $subject !== '') {
+            $sql .= " AND subject LIKE ?";
+            $params[] = '%' . $subject . '%';
+            $types .= 's';
+        }
+
+        $sql .= " ORDER BY actiontimestamp ASC";
 
         if ($limit !== null) {
             $sql .= " LIMIT ? OFFSET ?";
-            return $this->db->fetchAll($sql, [$userEmail, $limit, $offset], 'sii');
+            $params[] = $limit;
+            $params[] = $offset;
+            $types .= 'ii';
         }
 
-        return $this->db->fetchAll($sql, [$userEmail]);
+        return $this->db->fetchAll($sql, $params, $types);
     }
 
-    public function countUpcomingForUser($userEmail)
+    public function countUpcomingForUser($userEmail, $subject = null)
     {
-        $status = EmailStatus::PROCESSED;
-        $ignored = EmailStatus::IGNORED;
+        $params = [$userEmail, EmailStatus::PROCESSED, EmailStatus::IGNORED];
+        $types  = 'sii';
+
         $sql = "SELECT COUNT(*) as total
                 FROM emails
                 WHERE fromaddress = ?
-                AND processed = {$status}
-                AND actiontimestamp <> {$ignored}";
-        $rows = $this->db->fetchAll($sql, [$userEmail]);
+                AND processed = ?
+                AND actiontimestamp <> ?";
+
+        if ($subject !== null && $subject !== '') {
+            $sql .= " AND subject LIKE ?";
+            $params[] = '%' . $subject . '%';
+            $types .= 's';
+        }
+
+        $rows = $this->db->fetchAll($sql, $params, $types);
+        return $rows[0]['total'] ?? 0;
+    }
+
+    public function countDueTodayForUser($userEmail)
+    {
+        $now = time();
+        $endOfToday = mktime(23, 59, 59, date('n'), date('j'), date('Y'));
+        $sql = "SELECT COUNT(*) as total
+                FROM emails
+                WHERE fromaddress = ?
+                AND processed = ?
+                AND actiontimestamp <> ?
+                AND actiontimestamp >= ?
+                AND actiontimestamp <= ?";
+        $rows = $this->db->fetchAll($sql, [$userEmail, EmailStatus::PROCESSED, EmailStatus::IGNORED, $now, $endOfToday], 'siiii');
+        return $rows[0]['total'] ?? 0;
+    }
+
+    public function countDueThisWeekForUser($userEmail)
+    {
+        $now = time();
+        $endOfWeek = strtotime('sunday 23:59:59');
+        if ($endOfWeek < $now) {
+            $endOfWeek = strtotime('+1 week sunday 23:59:59');
+        }
+        $sql = "SELECT COUNT(*) as total
+                FROM emails
+                WHERE fromaddress = ?
+                AND processed = ?
+                AND actiontimestamp <> ?
+                AND actiontimestamp >= ?
+                AND actiontimestamp <= ?";
+        $rows = $this->db->fetchAll($sql, [$userEmail, EmailStatus::PROCESSED, EmailStatus::IGNORED, $now, $endOfWeek], 'siiii');
+        return $rows[0]['total'] ?? 0;
+    }
+
+    public function countOverdueForUser($userEmail)
+    {
+        $now = time();
+        $sql = "SELECT COUNT(*) as total
+                FROM emails
+                WHERE fromaddress = ?
+                AND processed = ?
+                AND actiontimestamp <> ?
+                AND actiontimestamp < ?";
+        $rows = $this->db->fetchAll($sql, [$userEmail, EmailStatus::PROCESSED, EmailStatus::IGNORED, $now], 'siii');
+        return $rows[0]['total'] ?? 0;
+    }
+
+    public function getHistoryForUser($userEmail, $limit = null, $offset = 0, $subject = null)
+    {
+        $params = [$userEmail, EmailStatus::REMINDED, EmailStatus::CANCELLED];
+        $types  = 'sii';
+
+        $sql = "SELECT ID, message_id, fromaddress, toaddress, subject, timestamp, actiontimestamp, processed
+                FROM emails
+                WHERE fromaddress = ?
+                AND processed IN (?, ?)";
+
+        if ($subject !== null && $subject !== '') {
+            $sql .= " AND subject LIKE ?";
+            $params[] = '%' . $subject . '%';
+            $types .= 's';
+        }
+
+        $sql .= " ORDER BY actiontimestamp DESC";
+
+        if ($limit !== null) {
+            $sql .= " LIMIT ? OFFSET ?";
+            $params[] = $limit;
+            $params[] = $offset;
+            $types .= 'ii';
+        }
+
+        return $this->db->fetchAll($sql, $params, $types);
+    }
+
+    public function countHistoryForUser($userEmail, $subject = null)
+    {
+        $params = [$userEmail, EmailStatus::REMINDED, EmailStatus::CANCELLED];
+        $types  = 'sii';
+
+        $sql = "SELECT COUNT(*) as total
+                FROM emails
+                WHERE fromaddress = ?
+                AND processed IN (?, ?)";
+
+        if ($subject !== null && $subject !== '') {
+            $sql .= " AND subject LIKE ?";
+            $params[] = '%' . $subject . '%';
+            $types .= 's';
+        }
+
+        $rows = $this->db->fetchAll($sql, $params, $types);
         return $rows[0]['total'] ?? 0;
     }
 
@@ -58,11 +168,27 @@ class EmailRepository
         return $this->db->fetchAll("SELECT * FROM emails WHERE processed IS NOT TRUE");
     }
 
-    public function markAsProcessed($id, $actionTimestamp)
+    public function markAsProcessed($id, $actionTimestamp, $recurrence = null)
     {
-        $status = EmailStatus::PROCESSED;
-        $sql = "UPDATE emails SET actiontimestamp = ?, processed = {$status} WHERE ID = ?";
-        $this->db->query($sql, [$actionTimestamp, $id], 'ii');
+        if ($recurrence !== null) {
+            $sql = "UPDATE emails SET actiontimestamp = ?, processed = ?, recurrence = ? WHERE ID = ?";
+            $this->db->query($sql, [$actionTimestamp, EmailStatus::PROCESSED, $recurrence, $id], 'iisi');
+        } else {
+            $sql = "UPDATE emails SET actiontimestamp = ?, processed = ? WHERE ID = ?";
+            $this->db->query($sql, [$actionTimestamp, EmailStatus::PROCESSED, $id], 'iii');
+        }
+    }
+
+    public function rescheduleRecurring($id, $newTimestamp)
+    {
+        $sql = "UPDATE emails SET actiontimestamp = ?, processed = ? WHERE ID = ?";
+        $this->db->query($sql, [$newTimestamp, EmailStatus::PROCESSED, $id], 'iii');
+    }
+
+    public function findByMessageId($messageId)
+    {
+        $rows = $this->db->fetchAll("SELECT * FROM emails WHERE message_id = ? LIMIT 1", [$messageId]);
+        return $rows[0] ?? null;
     }
 
     public function updateProcessingStatus($id, $status)
@@ -116,14 +242,13 @@ class EmailRepository
         $sub = preg_replace($pattern, '', $subject);
         $searchSub = '%' . $sub . '%';
 
-        $status = EmailStatus::PROCESSED;
         $sql = "SELECT * FROM emails
                 WHERE Subject LIKE ?
                 AND toaddress NOT LIKE 'check@%'
                 AND toaddress NOT LIKE 'search@%'
                 AND fromaddress = ?
-                AND processed = {$status}
+                AND processed = ?
                 ORDER BY actiontimestamp";
-        return $this->db->fetchAll($sql, [$searchSub, $email], 'ss');
+        return $this->db->fetchAll($sql, [$searchSub, $email, EmailStatus::PROCESSED], 'ssi');
     }
 }

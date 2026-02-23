@@ -15,6 +15,8 @@ class AuditLog
     const LOGIN_SUCCESS = 'login_success';
     const LOGIN_FAILED = 'login_failed';
     const SETTINGS_CHANGED = 'settings_changed';
+    const REMINDER_SNOOZED = 'reminder_snoozed';
+    const REMINDER_CANCELLED = 'reminder_cancelled';
 
     public function __construct()
     {
@@ -127,6 +129,33 @@ class AuditLog
         $types .= 'ii';
 
         return $this->db->fetchAll($sql, $params, $types);
+    }
+
+    /**
+     * Count audit logs matching the given filters (for pagination).
+     *
+     * @param array $filters Same keys as getLogs()
+     * @return int
+     */
+    public function countLogs($filters = [])
+    {
+        $sql = "SELECT COUNT(*) as total FROM audit_logs WHERE 1=1";
+        $params = [];
+        $types = '';
+
+        if (!empty($filters['action'])) {
+            $sql .= " AND action = ?";
+            $params[] = $filters['action'];
+            $types .= 's';
+        }
+        if (!empty($filters['actor_email'])) {
+            $sql .= " AND actor_email = ?";
+            $params[] = $filters['actor_email'];
+            $types .= 's';
+        }
+
+        $rows = $this->db->fetchAll($sql, $params, $types ?: null);
+        return (int) ($rows[0]['total'] ?? 0);
     }
 
     /**

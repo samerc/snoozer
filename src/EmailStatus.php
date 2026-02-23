@@ -15,4 +15,7 @@ class EmailStatus
 
     /** Email should be ignored (invalid address, special command completed, etc.) */
     const IGNORED = -1;
+
+    /** Reminder was explicitly cancelled by the user */
+    const CANCELLED = -2;
 }

@@ -1,28 +1,51 @@
 <?php
 require_once 'src/Session.php';
 require_once 'src/User.php';
+require_once 'src/Mailer.php';
+require_once 'src/RateLimiter.php';
+require_once 'src/AuditLog.php';
 require_once 'src/Utils.php';
+require_once 'env_loader.php';
 
 Session::start();
 
 $message = '';
-$error = '';
-$newPassword = '';
+$error   = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!Utils::validateCsrfToken($_POST['csrf_token'] ?? '')) {
         $error = "Invalid request. Please try again.";
     } else {
-        $email = $_POST['email'] ?? '';
-        $userRepo = new User();
-        $user = $userRepo->findByEmail($email);
+        $ip          = Utils::getClientIp();
+        $rateLimiter = new RateLimiter(5, 15);
 
-        if ($user) {
-            $newPassword = substr(str_shuffle('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*'), 0, 10);
-            $userRepo->updatePassword($user['ID'], $newPassword);
-            $message = "Your password has been reset.";
+        if ($rateLimiter->tooManyAttempts('forgot_' . $ip)) {
+            $error = "Too many reset attempts. Please wait 15 minutes and try again.";
         } else {
-            $error = "No account found with that email address.";
+            $email    = trim($_POST['email'] ?? '');
+            $userRepo = new User();
+            $user     = $userRepo->findByEmail($email);
+
+            // Always show the same message to prevent email enumeration
+            $message = "If that email is registered, a password reset link has been sent.";
+
+            $rateLimiter->hit('forgot_' . $ip);
+
+            if ($user) {
+                $token  = $userRepo->generatePasswordSetupToken($user['ID']);
+                $mailer = new Mailer();
+                $mailer->sendPasswordSetupEmail($email, $user['name'], $token);
+
+                $auditLog = new AuditLog();
+                $auditLog->log(
+                    AuditLog::PASSWORD_RESET,
+                    null,
+                    $email,
+                    $user['ID'],
+                    'user',
+                    ['method' => 'forgot_password', 'ip' => $ip]
+                );
+            }
         }
     }
 }
@@ -43,10 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             justify-content: center;
             height: 100vh;
             margin: 0;
-            background-color: #121212;
-            color: #ffffff;
         }
-
         .login-card {
             width: 100%;
             max-width: 400px;
@@ -57,7 +77,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 20px;
         }
-
         .brand-logo {
             font-size: 2rem;
             font-weight: 800;
@@ -68,13 +87,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
-
         .form-control {
             background: rgba(255, 255, 255, 0.1);
             color: #fff;
             border: none;
         }
-
         .form-control:focus {
             background: rgba(255, 255, 255, 0.15);
             color: #fff;
@@ -87,16 +104,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="login-card">
         <div class="brand-logo">SNOOZER</div>
 
-        <?php if ($newPassword): ?>
+        <?php if ($message): ?>
             <div class="alert alert-success text-center">
-                <p class="mb-2">
-                    <?php echo $message; ?>
-                </p>
-                <div class="bg-white text-dark p-3 rounded font-weight-bold h4">
-                    <?php echo htmlspecialchars($newPassword); ?>
-                </div>
-                <p class="small mt-2 mb-0">Please copy this password and <a href="login.php" class="font-weight-bold">login
-                        immediately</a>.</p>
+                <p class="mb-0"><?php echo htmlspecialchars($message); ?></p>
+            </div>
+            <div class="text-center mt-4">
+                <a href="login.php" class="small text-muted">Back to Login</a>
             </div>
         <?php else: ?>
             <h5 class="text-center font-weight-bold mb-4">Reset Password</h5>
@@ -114,7 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <input type="email" name="email" class="form-control rounded-pill px-4 py-4"
                         placeholder="name@company.com" required autofocus>
                 </div>
-                <button type="submit" class="btn btn-premium btn-block py-3 mt-2">Reset Password</button>
+                <button type="submit" class="btn btn-premium btn-block py-3 mt-2">Send Reset Link</button>
             </form>
 
             <div class="text-center mt-4">

@@ -1,5 +1,6 @@
 -- Snoozer Database Schema
 -- Compatible with MySQL 5.7+ / MariaDB 10.2+
+-- Includes all migrations 001–007
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
@@ -19,8 +20,12 @@ CREATE TABLE `users` (
   `timezone` varchar(50) DEFAULT 'UTC',
   `theme` varchar(20) DEFAULT 'dark',
   `sslkey` tinyblob,
+  `password_setup_token` varchar(64) DEFAULT NULL COMMENT 'Secure token for password setup',
+  `password_setup_token_expires` datetime DEFAULT NULL COMMENT 'Token expiration timestamp',
+  `thread_reminders` tinyint(1) NOT NULL DEFAULT 1 COMMENT 'Whether reminder emails are threaded to the original email (1=yes, 0=no)',
   PRIMARY KEY (`ID`),
-  UNIQUE KEY `idx_email` (`email`)
+  UNIQUE KEY `idx_email` (`email`),
+  INDEX `idx_password_setup_token` (`password_setup_token`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ----------------------------
@@ -39,6 +44,7 @@ CREATE TABLE `emails` (
   `actiontimestamp` int(11) DEFAULT NULL,
   `sslkey` tinyblob NOT NULL,
   `catID` int(11) DEFAULT NULL,
+  `recurrence` varchar(20) NULL DEFAULT NULL COMMENT 'null=once, daily, weekly, monthly, weekdays',
   PRIMARY KEY (`ID`),
   INDEX `idx_message_id` (`message_id`(255)),
   INDEX `idx_fromaddress` (`fromaddress`),
@@ -79,39 +85,55 @@ CREATE TABLE `email_templates` (
 
 INSERT INTO `email_templates` (`slug`, `subject`, `body`, `variables`) VALUES
 ('wrapper', NULL, '<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <style>
-    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-    .header { text-align: center; padding: 20px 0; border-bottom: 2px solid #7d3c98; }
-    .content { padding: 20px 0; }
-    .footer { text-align: center; padding: 20px 0; font-size: 12px; color: #888; border-top: 1px solid #eee; }
-  </style>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{TITLE}}</title>
 </head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1 style="color: #7d3c98; margin: 0;">Snoozer</h1>
-    </div>
-    <div class="content">
-      {{CONTENT}}
-    </div>
-    <div class="footer">
-      <p>Reach &amp; maintain a zero inbox status</p>
-    </div>
-  </div>
+<body style="margin:0;padding:0;background:#f0f0f4;font-family:Arial,sans-serif;">
+  <table width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f0f0f4;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table width="600" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+          <tr>
+            <td style="background:linear-gradient(135deg,#7d3c98 0%,#a855c8 100%);padding:26px 32px;text-align:center;">
+              <div style="font-size:20px;font-weight:800;color:#ffffff;letter-spacing:4px;">SNOOZER</div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.65);letter-spacing:1px;margin-top:5px;">reach &amp; maintain a zero inbox</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px;">
+              {{CONTENT}}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 32px;border-top:1px solid #f0f0f0;text-align:center;">
+              <span style="font-size:11px;color:#bbb;">You''re receiving this because you set a reminder using Snoozer.</span>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>', '{{TITLE}}, {{CONTENT}}'),
-('reminder', 'RE: {{SUBJECT}}', '<h2>Reminder: {{SUBJECT}}</h2>
-<p>This is your scheduled reminder.</p>
-<div style="margin: 20px 0;">
+('reminder', 'RE: {{SUBJECT}}', '<p style="font-size:15px;font-weight:700;color:#1a1a1a;margin:0 0 6px 0;">{{SUBJECT}}</p>
+<p style="font-size:13px;color:#888;margin:0 0 24px 0;">Here are your snooze options — pick one to reschedule:</p>
+<div style="margin-bottom:24px;">
   {{SNOOZE_BUTTONS}}
 </div>
-<p style="margin-top: 20px;">
-  <a href="{{CANCEL_URL}}" style="color: #e74c3c;">Cancel this reminder</a>
-</p>', '{{SUBJECT}}, {{CANCEL_URL}}, {{SNOOZE_BUTTONS}}');
+<div style="border-top:1px solid #eee;padding-top:16px;">
+  <a href="{{CANCEL_URL}}" style="font-size:12px;color:#e74c3c;text-decoration:none;font-weight:600;">&#10005; Cancel this reminder</a>
+</div>', '{{SUBJECT}}, {{CANCEL_URL}}, {{SNOOZE_BUTTONS}}'),
+('password_setup', 'Set up your Snoozer account password', '<h2 style="font-size:18px;font-weight:700;color:#1a1a1a;margin:0 0 12px 0;">Welcome to Snoozer, {{NAME}}!</h2>
+<p style="font-size:14px;color:#555;margin:0 0 24px 0;">An account has been created for you. Click the button below to set your password and get started:</p>
+<div style="text-align:center;margin:28px 0;">
+  <a href="{{SETUP_LINK}}" style="display:inline-block;padding:14px 32px;background:#7d3c98;color:#fff;text-decoration:none;border-radius:50px;font-weight:700;font-size:14px;letter-spacing:0.5px;">Set Up Password</a>
+</div>
+<p style="font-size:12px;color:#999;margin:0 0 8px 0;">Or copy and paste this link into your browser:</p>
+<p style="font-size:12px;word-break:break-all;color:#7d3c98;margin:0 0 20px 0;">{{SETUP_LINK}}</p>
+<p style="font-size:12px;color:#aaa;margin:0;"><strong>Note:</strong> This link expires in {{EXPIRATION_HOURS}} hours. If you did not expect this email, you can safely ignore it.</p>', '{{NAME}}, {{SETUP_LINK}}, {{EXPIRATION_HOURS}}');
 
 -- ----------------------------
 -- Table: login_attempts (Rate limiting)
@@ -145,6 +167,17 @@ CREATE TABLE `audit_logs` (
   INDEX `idx_actor_id` (`actor_id`),
   INDEX `idx_target` (`target_type`, `target_id`),
   INDEX `idx_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ----------------------------
+-- Table: system_settings (Cron health & app state)
+-- ----------------------------
+DROP TABLE IF EXISTS `system_settings`;
+CREATE TABLE `system_settings` (
+  `key` varchar(50) NOT NULL,
+  `value` text DEFAULT NULL,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 SET FOREIGN_KEY_CHECKS = 1;

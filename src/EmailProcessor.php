@@ -30,7 +30,45 @@ class EmailProcessor
         foreach ($emails as $email) {
             $fromAddress = $email['fromaddress'];
             $timestamp = $email['timestamp'];
-            $result = $this->analyzeEmailAddress($fromAddress, $email['toaddress'], $timestamp);
+
+            // Check for reply-to-snooze: incoming email references an existing reminder
+            $isReplySnooze = false;
+            $refIds = $this->extractReferencedIds($email['header'] ?? '');
+            foreach ($refIds as $refId) {
+                $original = $this->emailRepo->findByMessageId($refId);
+                if ($original
+                    && $original['fromaddress'] === $fromAddress
+                    && (int) $original['processed'] === EmailStatus::PROCESSED) {
+
+                    $newTs = $this->analyzeEmailAddress($fromAddress, $email['toaddress'], $timestamp);
+                    if (is_int($newTs) && $newTs > time()) {
+                        $this->emailRepo->updateReminderTime($original['ID'], $newTs);
+                    }
+                    $this->emailRepo->updateProcessingStatus($email['ID'], EmailStatus::IGNORED);
+                    $isReplySnooze = true;
+                    break;
+                }
+            }
+            if ($isReplySnooze) continue;
+
+            // Detect recurrence pattern from address prefix before normal analysis
+            $recurrence = null;
+            $recurrenceMap = [
+                'daily'    => 'tomorrow',
+                'weekly'   => '1week',
+                'monthly'  => '1month',
+                'weekdays' => 'tomorrow',
+            ];
+            $toUsername = strtolower(strstr($email['toaddress'], '@', true) ?: $email['toaddress']);
+            if (isset($recurrenceMap[$toUsername])) {
+                $recurrence = $toUsername;
+                $domain = strstr($email['toaddress'], '@') ?: '@snoozer';
+                $toAddressForAnalysis = $recurrenceMap[$toUsername] . $domain;
+            } else {
+                $toAddressForAnalysis = $email['toaddress'];
+            }
+
+            $result = $this->analyzeEmailAddress($fromAddress, $toAddressForAnalysis, $timestamp);
 
             $actionTimestamp = $result;
 
@@ -42,8 +80,7 @@ class EmailProcessor
                 $actionTimestamp = EmailStatus::IGNORED;
             }
 
-            // Update email
-            $this->emailRepo->markAsProcessed($email['ID'], $actionTimestamp);
+            $this->emailRepo->markAsProcessed($email['ID'], $actionTimestamp, $recurrence);
         }
     }
 
@@ -52,8 +89,17 @@ class EmailProcessor
         $emails = $this->emailRepo->getPendingActions(time());
         foreach ($emails as $email) {
             $this->sendReminder($email);
-            // Mark as reminded
-            $this->emailRepo->updateProcessingStatus($email['ID'], EmailStatus::REMINDED);
+            if (!empty($email['recurrence'])) {
+                // Recurring: reschedule to next occurrence, keep as PROCESSED
+                $next = $this->calculateNextOccurrence($email['actiontimestamp'], $email['recurrence']);
+                if ($next) {
+                    $this->emailRepo->rescheduleRecurring($email['ID'], $next);
+                } else {
+                    $this->emailRepo->updateProcessingStatus($email['ID'], EmailStatus::REMINDED);
+                }
+            } else {
+                $this->emailRepo->updateProcessingStatus($email['ID'], EmailStatus::REMINDED);
+            }
         }
     }
 
@@ -88,7 +134,9 @@ class EmailProcessor
         }
 
         // Time parsing using shared utility
-        $actionTimestamp = Utils::parseTimeExpression($username, $timestamp);
+        $user = $this->userRepo->findByEmail($fromAddress);
+        $defaultHour = isset($user['DefaultReminderTime']) ? (int) $user['DefaultReminderTime'] : 17;
+        $actionTimestamp = Utils::parseTimeExpression($username, $timestamp, $defaultHour);
         if ($actionTimestamp === false) {
             $this->sendNdr($fromAddress, $toEmail);
             return EmailStatus::IGNORED;
@@ -208,8 +256,19 @@ class EmailProcessor
         $id = $row['ID'];
         $sslKey = $row['sslkey'];
         $subject = $row['subject'];
+
+        // Respect per-user threading preference (default: thread enabled)
+        $user = $this->userRepo->findByEmail($row['fromaddress']);
+        $threadReminders = (int) ($user['thread_reminders'] ?? 1);
+        $inReplyTo = $threadReminders ? ($row['message_id'] ?? '') : '';
         if (function_exists('mb_decode_mimeheader')) {
             $subject = mb_decode_mimeheader($subject);
+        }
+        // Strip folded-header newlines that mb_decode_mimeheader may leave behind,
+        // and fall back gracefully if the stored subject is empty.
+        $subject = trim(preg_replace('/[\r\n]+\s*/', ' ', $subject));
+        if ($subject === '') {
+            $subject = '(no subject)';
         }
 
         // Action URLs
@@ -233,12 +292,14 @@ class EmailProcessor
 
         $snoozeButtons = "";
         foreach ($snoozeOptions as $group => $options) {
-            $snoozeButtons .= "<div style='margin-bottom: 8px;'><small style='color: #888; display: block; margin-bottom: 4px;'>$group: </small>";
+            $snoozeButtons .= "<div style='margin-bottom:14px;'>";
+            $snoozeButtons .= "<div style='font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:#999;margin-bottom:7px;'>$group</div>";
+            $snoozeButtons .= "<div style='line-height:2.2;'>";
             foreach ($options as $label => $time) {
                 $url = Utils::getActionUrl($id, $row["message_id"], "s", $time, $sslKey);
-                $snoozeButtons .= "<a href='$url' style='background-color: #f0f0f0; color: #333; padding: 4px 10px; text-decoration: none; border-radius: 4px; border: 1px solid #ccc; font-size: 11px; margin-right: 4px; display: inline-block;'>$label</a>";
+                $snoozeButtons .= "<a href='$url' style='display:inline-block;background:#f3eafa;color:#7d3c98;padding:5px 14px;text-decoration:none;border-radius:50px;border:1.5px solid #c9a0dc;font-size:12px;font-weight:600;margin:0 6px 0 0;white-space:nowrap;'>$label</a> ";
             }
-            $snoozeButtons .= "</div>";
+            $snoozeButtons .= "</div></div>";
         }
 
         // Fetch Template
@@ -258,7 +319,40 @@ class EmailProcessor
 
         $fullHtml = $this->getEmailWrapper("Reminder: $subject", $body);
 
-        $this->mailer->send($row["fromaddress"], $emailSubject, $fullHtml, $row["message_id"]);
+        $this->mailer->send($row["fromaddress"], $emailSubject, $fullHtml, $inReplyTo);
+    }
+
+    private function calculateNextOccurrence($timestamp, $recurrence)
+    {
+        switch ($recurrence) {
+            case 'daily':
+                return strtotime('+1 day', $timestamp);
+            case 'weekly':
+                return strtotime('+1 week', $timestamp);
+            case 'monthly':
+                return strtotime('+1 month', $timestamp);
+            case 'weekdays':
+                $next = strtotime('+1 day', $timestamp);
+                $dow = (int) date('w', $next);
+                if ($dow === 6) $next = strtotime('+2 days', $next); // Saturday → Monday
+                if ($dow === 0) $next = strtotime('+1 day', $next);  // Sunday → Monday
+                return $next;
+        }
+        return null;
+    }
+
+    private function extractReferencedIds($rawHeader)
+    {
+        $ids = [];
+        if (preg_match('/^In-Reply-To:\s*(.+)$/mi', $rawHeader, $m)) {
+            preg_match_all('/<[^>@\s]+@[^>@\s]+>/', $m[1], $found);
+            $ids = array_merge($ids, $found[0]);
+        }
+        if (preg_match('/^References:\s*(.+(?:\r?\n[ \t].+)*)/mi', $rawHeader, $m)) {
+            preg_match_all('/<[^>@\s]+@[^>@\s]+>/', $m[1], $refFound);
+            $ids = array_merge($ids, $refFound[0]);
+        }
+        return array_unique($ids);
     }
 
     private function getTemplate($slug)

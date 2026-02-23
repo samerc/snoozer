@@ -14,7 +14,7 @@ class Mailer
             'username' => $_ENV['MAIL_USERNAME'] ?? '',
             'password' => $_ENV['MAIL_PASSWORD'] ?? '',
             'encryption' => $_ENV['MAIL_ENCRYPTION'] ?? '',
-            'from_address' => $_ENV['MAIL_FROM_ADDRESS'] ?? 'noreply@snoozer.cloud',
+            'from_address' => $_ENV['MAIL_FROM_ADDRESS'] ?? ('noreply@' . ($_ENV['MAIL_DOMAIN'] ?? 'localhost')),
             'from_name' => $_ENV['MAIL_FROM_NAME'] ?? 'Snoozer',
         ];
     }
@@ -41,9 +41,15 @@ class Mailer
      */
     private function sendMail($to, $subject, $message, $inReplyToMessageId = "")
     {
+        // Strip CR/LF to prevent email header injection
+        $to      = preg_replace('/[\r\n]/', '', $to);
+        $subject = preg_replace('/[\r\n]/', '', $subject);
+
         $headers = "From: " . $this->config['from_name'] . " <" . $this->config['from_address'] . ">\r\n";
         if ($inReplyToMessageId != "") {
-            $headers .= "In-Reply-To: " . $inReplyToMessageId . "\r\n";
+            $safeId  = preg_replace('/[\r\n]/', '', $inReplyToMessageId);
+            $headers .= "In-Reply-To: " . $safeId . "\r\n";
+            $headers .= "References: " . $safeId . "\r\n";
         }
         $headers .= "Content-type: text/html; charset=UTF-8\r\n";
 
@@ -55,6 +61,13 @@ class Mailer
      */
     private function sendSmtp($to, $subject, $message, $inReplyToMessageId = "")
     {
+        // Strip CR/LF to prevent email header injection
+        $to      = preg_replace('/[\r\n]/', '', $to);
+        $subject = preg_replace('/[\r\n]/', '', $subject);
+        if ($inReplyToMessageId !== '') {
+            $inReplyToMessageId = preg_replace('/[\r\n]/', '', $inReplyToMessageId);
+        }
+
         $host = $this->config['host'];
         $port = $this->config['port'];
         $timeout = 10;

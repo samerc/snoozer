@@ -1,9 +1,12 @@
 <?php
 /**
  * Verify AuditLog.php Fix
- * 
- * This script checks if the fix was applied correctly and shows the actual code
+ * Admin-only diagnostic script.
  */
+
+require_once __DIR__ . '/src/Session.php';
+Session::start();
+Session::requireAdmin();
 
 $filePath = __DIR__ . '/src/AuditLog.php';
 

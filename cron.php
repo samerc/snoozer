@@ -10,6 +10,7 @@ require_once 'env_loader.php';
 
 // Autoload Classes
 require_once 'src/Logger.php';
+require_once 'src/Database.php';
 require_once 'src/EmailIngestor.php';
 require_once 'src/EmailProcessor.php';
 
@@ -44,6 +45,18 @@ try {
     Logger::info('Email processing completed');
 
     Logger::info('Cron cycle completed successfully');
+
+    // Record last successful run for health monitoring
+    try {
+        $db = Database::getInstance();
+        $db->query(
+            "INSERT INTO system_settings (`key`, `value`) VALUES ('last_cron_run', NOW())
+             ON DUPLICATE KEY UPDATE `value` = NOW()",
+            []
+        );
+    } catch (Exception $dbEx) {
+        Logger::warning('Could not update last_cron_run', ['error' => $dbEx->getMessage()]);
+    }
 
 } catch (Exception $e) {
     Logger::exception($e, 'Cron cycle failed');

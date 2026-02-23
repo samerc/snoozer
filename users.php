@@ -89,16 +89,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $userId = $_POST['user_id'] ?? '';
             if ($userId) {
                 $targetUser = $userRepo->getById($userId);
-                $newPassword = substr(str_shuffle('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*'), 0, 10);
-                $userRepo->updatePassword($userId, $newPassword);
-                // Log password reset
-                $auditLog->logFromSession(
-                    AuditLog::PASSWORD_RESET,
-                    $userId,
-                    'user',
-                    ['target_email' => $targetUser['email'] ?? null]
-                );
-                $message = "Password reset successfully. The new password is: <strong>" . htmlspecialchars($newPassword) . "</strong>";
+                if ($targetUser) {
+                    // Send a password setup email rather than generating a plaintext password
+                    require_once 'src/Mailer.php';
+                    $token     = $userRepo->generatePasswordSetupToken($userId);
+                    $mailer    = new Mailer();
+                    $emailSent = $mailer->sendPasswordSetupEmail($targetUser['email'], $targetUser['name'], $token);
+
+                    $auditLog->logFromSession(
+                        AuditLog::PASSWORD_RESET,
+                        $userId,
+                        'user',
+                        ['target_email' => $targetUser['email']]
+                    );
+
+                    if ($emailSent) {
+                        $message = "Password reset email sent to " . htmlspecialchars($targetUser['email']) . ".";
+                    } else {
+                        $error = "Failed to send password reset email. Please check email configuration.";
+                    }
+                }
             }
         }
     }
@@ -111,6 +121,7 @@ $users = $userRepo->getAll();
 
 <head>
     <meta charset="UTF-8">
+    <?php echo Utils::csrfMeta(); ?>
     <title>User Management - Snoozer</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.2.1/css/bootstrap.min.css">
@@ -131,6 +142,7 @@ $users = $userRepo->getAll();
                     <li class="nav-item"><a class="nav-link" href="settings.php">Settings</a></li>
                     <li class="nav-item active"><a class="nav-link" href="users.php">Users</a></li>
                     <li class="nav-item"><a class="nav-link" href="admin_templates.php">Templates</a></li>
+                    <li class="nav-item"><a class="nav-link" href="admin_audit.php">Audit Log</a></li>
                 </ul>
                 <div class="theme-switch-wrapper mr-4">
                     <label class="theme-switch" for="checkbox">
@@ -249,6 +261,7 @@ $users = $userRepo->getAll();
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
             const toggleSwitch = document.querySelector('.theme-switch input[type="checkbox"]');
             async function switchTheme(e) {
                 const theme = e.target.checked ? 'light' : 'dark';
@@ -256,7 +269,7 @@ $users = $userRepo->getAll();
                 e.target.closest('.theme-switch-wrapper').querySelector('span').textContent = theme.charAt(0).toUpperCase() + theme.slice(1);
                 await fetch('api/update_theme.php', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ theme })
                 });
             }

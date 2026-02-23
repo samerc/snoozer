@@ -2,7 +2,12 @@
 /**
  * SMTP Diagnostic Tool for Snoozer
  * Use this to verify your .env mail configuration.
+ * Admin-only: requires an active admin session.
  */
+
+require_once 'src/Session.php';
+Session::start();
+Session::requireAdmin();
 
 require_once 'env_loader.php';
 require_once 'src/Mailer.php';
