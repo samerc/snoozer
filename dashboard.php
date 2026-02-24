@@ -185,6 +185,42 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
         .action-btn.release:hover    { background: rgba(46,204,113,0.15); border-color: #27ae60; color: #27ae60; }
         .action-btn.reschedule:hover { background: rgba(125,60,152,0.15); border-color: var(--primary-purple); color: var(--primary-purple-light); }
         .action-btn.cancel:hover     { background: rgba(231,76,60,0.15);  border-color: #e74c3c; color: #e74c3c; }
+        .action-btn:disabled         { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+
+        /* ── Toast ───────────────────────────────────────────── */
+        .snoozer-toast {
+            position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+            display: flex; align-items: center; gap: 10px;
+            background: var(--glass-bg); backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border); border-radius: 12px;
+            padding: 12px 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            font-size: 0.875rem; font-weight: 600; min-width: 220px;
+            opacity: 0; transform: translateY(16px);
+            transition: opacity 0.25s, transform 0.25s;
+            pointer-events: none;
+        }
+        .snoozer-toast.show          { opacity: 1; transform: translateY(0); pointer-events: auto; }
+        .snoozer-toast.toast-success { border-color: #27ae60; }
+        .snoozer-toast.toast-error   { border-color: #e74c3c; }
+        .toast-icon                  { font-size: 1.1rem; flex-shrink: 0; }
+
+        /* ── Responsive ──────────────────────────────────────── */
+        .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        @media (max-width: 767px) {
+            .navbar-toggler { border-color: var(--glass-border); padding: 4px 8px; }
+            .navbar-toggler-icon {
+                background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 30 30' xmlns='http://www.w3.org/2000/svg'%3e%3cpath stroke='rgba(200,200,200,0.8)' stroke-width='2' stroke-linecap='round' stroke-miterlimit='10' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+            }
+            .stat-value { font-size: 1.6rem; }
+            .stat-card  { padding: 14px 14px 0; }
+            .subject-cell { max-width: 160px; }
+            .dash-toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
+            .dash-toolbar .nav-pills { justify-content: center; }
+            .dash-toolbar form { width: 100%; }
+            .dash-toolbar .input-group { min-width: 100% !important; }
+            .dash-header { flex-direction: column; gap: 10px; }
+            .snoozer-toast { left: 16px; right: 16px; bottom: 16px; min-width: 0; }
+        }
     </style>
 </head>
 
@@ -192,7 +228,11 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
     <nav class="navbar navbar-expand-lg mb-0 shadow-sm">
         <div class="container-fluid">
             <a class="navbar-brand font-weight-bold" href="dashboard.php" style="letter-spacing: 2px;">SNOOZER</a>
-            <div class="collapse navbar-collapse">
+            <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarCollapse"
+                    aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarCollapse">
                 <ul class="navbar-nav mr-auto">
                     <li class="nav-item active"><a class="nav-link" href="dashboard.php">Dashboard</a></li>
                     <li class="nav-item"><a class="nav-link" href="kanban.php">Kanban</a></li>
@@ -336,6 +376,7 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
 
         <!-- Table -->
         <div class="glass-panel p-0 overflow-hidden">
+        <div class="table-scroll">
             <?php if ($view === 'upcoming'): ?>
             <table class="table table-borderless table-hover mb-0 dash-table">
                 <thead>
@@ -403,9 +444,12 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
                                             onclick="openRescheduleModal(<?php echo $email['ID']; ?>, <?php echo $email['actiontimestamp']; ?>)">
                                             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
                                         </button>
-                                        <a href="<?php echo $cancelUrl; ?>" class="action-btn cancel" title="Cancel reminder">
+                                        <button class="action-btn cancel" title="Cancel reminder"
+                                                data-id="<?php echo $email['ID']; ?>"
+                                                data-subject="<?php echo htmlspecialchars($email['subject'], ENT_QUOTES); ?>"
+                                                onclick="cancelReminder(this)">
                                             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-                                        </a>
+                                        </button>
                                     </div>
                                 </td>
                             </tr>
@@ -456,6 +500,7 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
                 </tbody>
             </table>
             <?php endif; ?>
+        </div><!-- /.table-scroll -->
         </div>
 
         <!-- Pagination -->
@@ -547,6 +592,12 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
         </div>
     </div>
 
+    <!-- Toast -->
+    <div id="snoozerToast" class="snoozer-toast" role="alert" aria-live="polite">
+        <span class="toast-icon" id="toastIcon">✓</span>
+        <span id="toastMsg"></span>
+    </div>
+
     <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.6/umd/popper.min.js"></script>
     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.2.1/js/bootstrap.min.js"></script>
@@ -565,6 +616,48 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
             });
         }
         toggleSwitch.addEventListener('change', switchTheme, false);
+
+        // ── Toast ────────────────────────────────────────────────────
+        let toastTimer;
+        function showToast(msg, type = 'success') {
+            const toast = document.getElementById('snoozerToast');
+            document.getElementById('toastMsg').textContent  = msg;
+            document.getElementById('toastIcon').textContent = type === 'success' ? '✓' : '✕';
+            toast.className = 'snoozer-toast toast-' + type + ' show';
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => toast.classList.remove('show'), 3500);
+        }
+
+        // ── Cancel reminder ──────────────────────────────────────────
+        async function cancelReminder(btn) {
+            const id      = parseInt(btn.dataset.id, 10);
+            const subject = btn.dataset.subject;
+            if (!confirm('Cancel this reminder?\n\n"' + subject + '"')) return;
+
+            btn.disabled = true;
+            try {
+                const res  = await fetch('api/cancel_reminder.php', {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                    body:    JSON.stringify({ id })
+                });
+                let data = {};
+                try { data = await res.json(); } catch (_) {}
+                if (!res.ok) throw new Error(data.error || 'Failed to cancel. Please refresh the page.');
+
+                // Fade out and remove the row
+                const row = btn.closest('tr');
+                row.style.transition = 'opacity 0.3s, transform 0.3s';
+                row.style.opacity    = '0';
+                row.style.transform  = 'translateX(20px)';
+                setTimeout(() => row.remove(), 320);
+
+                showToast('Reminder cancelled.', 'success');
+            } catch (err) {
+                btn.disabled = false;
+                showToast(err.message, 'error');
+            }
+        }
 
         function openCreateModal() {
             document.getElementById('newSubject').value = '';

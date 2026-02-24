@@ -72,6 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Snoozer</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.2.1/css/bootstrap.min.css">
@@ -81,8 +82,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             display: flex;
             align-items: center;
             justify-content: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
+            padding: 16px;
+            box-sizing: border-box;
         }
 
         .login-card {
@@ -90,6 +93,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             max-width: 400px;
             padding: 40px;
             animation: fadeIn 0.8s ease-out;
+        }
+
+        @media (max-width: 480px) {
+            .login-card { padding: 28px 20px; }
+            .brand-logo  { font-size: 2rem; margin-bottom: 22px; }
         }
 
         @keyframes fadeIn {
