@@ -23,7 +23,7 @@ class EmailRepository
         $params = [$userEmail, EmailStatus::PROCESSED, EmailStatus::IGNORED];
         $types  = 'sii';
 
-        $sql = "SELECT ID, message_id, fromaddress, toaddress, subject, timestamp, actiontimestamp, sslkey, recurrence, catID
+        $sql = "SELECT ID, message_id, fromaddress, toaddress, subject, timestamp, actiontimestamp, sslkey, recurrence, catID, notes
                 FROM emails
                 WHERE fromaddress = ?
                 AND processed = ?

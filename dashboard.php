@@ -27,9 +27,51 @@ $_SESSION['user_theme'] = $user['theme'] ?? 'dark';
 $perPage     = 20;
 $page        = max(1, intval($_GET['page'] ?? 1));
 $searchQuery = trim($_GET['q'] ?? '');
-$view        = in_array($_GET['view'] ?? '', ['upcoming', 'history']) ? $_GET['view'] : 'upcoming';
+$view        = in_array($_GET['view'] ?? '', ['upcoming', 'history', 'related']) ? $_GET['view'] : 'upcoming';
 
 $emailRepo = new EmailRepository();
+
+// ── Related topics: load all upcoming, cluster by shared keywords ──────────
+$relatedGroups = [];
+if ($view === 'related') {
+    $allUpcoming = $emailRepo->getUpcomingForUser($currentUserEmail);
+
+    // Stop-words to ignore when extracting keywords
+    $stopWords = ['re', 'fwd', 'fw', 'the', 'and', 'for', 'with', 'from', 'this',
+                  'that', 'have', 'are', 'was', 'will', 'your', 'you', 'our', 'its',
+                  'can', 'not', 'but', 'had', 'has', 'how', 'all', 'any', 'been',
+                  'per', 'via'];
+
+    // Extract keywords per email (words ≥4 chars, not stop-words)
+    $emailKeywords = [];
+    foreach ($allUpcoming as $em) {
+        $clean = preg_replace('/[^a-z0-9\s]/i', ' ', mb_strtolower($em['subject']));
+        $words = preg_split('/\s+/', $clean, -1, PREG_SPLIT_NO_EMPTY);
+        $keys  = array_unique(array_filter($words, fn($w) => strlen($w) >= 4 && !in_array($w, $stopWords)));
+        $emailKeywords[$em['ID']] = array_values($keys);
+    }
+
+    // Group: assign each email to clusters sharing a keyword
+    $assigned = [];
+    $groups   = [];
+    foreach ($allUpcoming as $em) {
+        if (isset($assigned[$em['ID']])) continue;
+        $group = [$em];
+        $assigned[$em['ID']] = true;
+        foreach ($allUpcoming as $other) {
+            if ($other['ID'] === $em['ID'] || isset($assigned[$other['ID']])) continue;
+            $shared = array_intersect($emailKeywords[$em['ID']], $emailKeywords[$other['ID']]);
+            if (!empty($shared)) {
+                $group[] = $other;
+                $assigned[$other['ID']] = true;
+            }
+        }
+        $groups[] = $group;
+    }
+    // Sort: multi-email groups first, then singles
+    usort($groups, fn($a, $b) => count($b) - count($a));
+    $relatedGroups = $groups;
+}
 
 if ($view === 'history') {
     $totalEmails = $emailRepo->countHistoryForUser($currentUserEmail, $searchQuery ?: null);
@@ -185,6 +227,8 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
         .action-btn.release:hover    { background: rgba(46,204,113,0.15); border-color: #27ae60; color: #27ae60; }
         .action-btn.reschedule:hover { background: rgba(125,60,152,0.15); border-color: var(--primary-purple); color: var(--primary-purple-light); }
         .action-btn.cancel:hover     { background: rgba(231,76,60,0.15);  border-color: #e74c3c; color: #e74c3c; }
+        .action-btn.note:hover       { background: rgba(52,152,219,0.15); border-color: #3498db; color: #3498db; }
+        .action-btn.note.has-note    { border-color: #3498db; color: #3498db; }
         .action-btn:disabled         { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
 
         /* ── Toast ───────────────────────────────────────────── */
@@ -203,6 +247,27 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
         .snoozer-toast.toast-success { border-color: #27ae60; }
         .snoozer-toast.toast-error   { border-color: #e74c3c; }
         .toast-icon                  { font-size: 1.1rem; flex-shrink: 0; }
+
+        /* ── Related Topics ─────────────────────────────────── */
+        .related-group { border-radius: 14px; }
+        .related-cluster { background: rgba(125,60,152,0.05); border: 1px solid rgba(125,60,152,0.15); padding: 10px; }
+        .related-group-label {
+            font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 1px; color: var(--primary-purple-light);
+            padding: 0 4px 8px; opacity: 0.8;
+        }
+        .related-card {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; padding: 10px 14px; margin-bottom: 6px; border-radius: 10px;
+        }
+        .related-card:last-child { margin-bottom: 0; }
+        .related-card-body { flex: 1; min-width: 0; }
+        .related-subject {
+            font-weight: 600; font-size: 0.875rem;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .related-meta { margin-top: 4px; }
+        .related-card-actions { display: flex; gap: 5px; flex-shrink: 0; }
 
         /* ── Responsive ──────────────────────────────────────── */
         .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -351,22 +416,28 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
                         History
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link <?php echo $view === 'related' ? 'active' : ''; ?> rounded-pill"
+                        href="dashboard.php?view=related">
+                        Related
+                    </a>
+                </li>
             </ul>
             <div class="d-flex align-items-center" style="gap:8px;">
                 <form method="GET" class="d-flex align-items-center mb-0" style="gap:8px;">
                     <?php if ($view === 'history'): ?><input type="hidden" name="view" value="history"><?php endif; ?>
                     <div class="input-group input-group-sm" style="min-width:220px;">
-                        <input type="text" name="q" class="form-control px-3"
+                        <input type="text" id="searchInput" name="q" class="form-control px-3"
                             placeholder="Search subjects…"
                             value="<?php echo htmlspecialchars($searchQuery); ?>"
-                            style="border-radius:20px 0 0 20px;">
+                            style="border-radius:20px; border-right:none;"
+                            autocomplete="off">
+                        <?php if ($searchQuery): ?>
                         <div class="input-group-append">
-                            <button class="btn btn-outline-secondary" type="submit" style="border-radius:0 20px 20px 0;">Search</button>
+                            <a href="dashboard.php<?php echo $view === 'history' ? '?view=history' : ''; ?>" class="btn btn-outline-secondary" style="border-radius:0 20px 20px 0;" title="Clear">&#x2715;</a>
                         </div>
+                        <?php endif; ?>
                     </div>
-                    <?php if ($searchQuery): ?>
-                        <a href="dashboard.php<?php echo $view === 'history' ? '?view=history' : ''; ?>" class="btn btn-sm btn-outline-secondary rounded-pill px-3" title="Clear filter">&#x2715;</a>
-                    <?php endif; ?>
                 </form>
                 <?php if ($searchQuery): ?>
                     <span class="text-muted small"><?php echo $totalEmails; ?> result<?php echo $totalEmails !== 1 ? 's' : ''; ?></span>
@@ -399,15 +470,21 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
                     <?php else: ?>
                         <?php foreach ($emails as $index => $email): ?>
                             <?php
-                            $isOverdue = $email['actiontimestamp'] < $now;
-                            $diff      = $email['actiontimestamp'] - $now;
+                            $isOverdue    = $email['actiontimestamp'] < $now;
+                            $actionDate   = date('Y-m-d', $email['actiontimestamp']);
+                            $todayDate    = date('Y-m-d', $now);
+                            $tomorrowDate = date('Y-m-d', strtotime('+1 day', $now));
+                            $endOfWeek    = date('Y-m-d', strtotime('next sunday', $now));
                             if ($isOverdue) {
                                 $urgencyClass = 'badge-overdue';
                                 $urgencyLabel = 'Overdue';
-                            } elseif ($diff < 86400) {
+                            } elseif ($actionDate === $todayDate) {
                                 $urgencyClass = 'badge-today';
                                 $urgencyLabel = 'Today';
-                            } elseif ($diff < 604800) {
+                            } elseif ($actionDate === $tomorrowDate) {
+                                $urgencyClass = 'badge-soon';
+                                $urgencyLabel = 'Tomorrow';
+                            } elseif ($actionDate <= $endOfWeek) {
                                 $urgencyClass = 'badge-soon';
                                 $urgencyLabel = 'This week';
                             } else {
@@ -437,6 +514,12 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
                                 </td>
                                 <td class="pr-4 text-right">
                                     <div class="d-flex justify-content-end" style="gap:5px;">
+                                        <button class="action-btn note<?php echo !empty($email['notes']) ? ' has-note' : ''; ?>" title="<?php echo !empty($email['notes']) ? 'Edit note' : 'Add note'; ?>"
+                                                data-id="<?php echo $email['ID']; ?>"
+                                                data-notes="<?php echo htmlspecialchars($email['notes'] ?? '', ENT_QUOTES); ?>"
+                                                onclick="openNoteModal(this)">
+                                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                                        </button>
                                         <a href="<?php echo $releaseUrl; ?>" class="action-btn release" title="Release now">
                                             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
                                         </a>
@@ -499,6 +582,70 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
                     <?php endif; ?>
                 </tbody>
             </table>
+            <?php elseif ($view === 'related'): ?>
+            <?php if (empty($relatedGroups)): ?>
+                <div class="empty-state">
+                    <svg width="56" height="56" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                    <p>No upcoming reminders to group.</p>
+                </div>
+            <?php else: ?>
+                <div class="p-3">
+                <?php foreach ($relatedGroups as $gi => $group): ?>
+                    <?php $isCluster = count($group) > 1; ?>
+                    <div class="related-group <?php echo $isCluster ? 'related-cluster' : ''; ?> mb-3">
+                        <?php if ($isCluster): ?>
+                            <div class="related-group-label">
+                                <?php echo count($group); ?> related reminders
+                            </div>
+                        <?php endif; ?>
+                        <?php foreach ($group as $em): ?>
+                            <?php
+                            $emOverdue  = $em['actiontimestamp'] < $now;
+                            $emActDate  = date('Y-m-d', $em['actiontimestamp']);
+                            $emToday    = $emActDate === date('Y-m-d', $now);
+                            $emTomorrow = $emActDate === date('Y-m-d', strtotime('+1 day', $now));
+                            if ($emOverdue)        { $emClass = 'badge-overdue'; $emLabel = 'Overdue'; }
+                            elseif ($emToday)      { $emClass = 'badge-today';   $emLabel = 'Today'; }
+                            elseif ($emTomorrow)   { $emClass = 'badge-soon';    $emLabel = 'Tomorrow'; }
+                            else                   { $emClass = 'badge-later';   $emLabel = date('M d', $em['actiontimestamp']); }
+                            $emRelease = Utils::getActionUrl($em['ID'], $em['message_id'], 's', "today.midnight", $em['sslkey']);
+                            ?>
+                            <div class="related-card glass-panel">
+                                <div class="related-card-body">
+                                    <div class="related-subject" title="<?php echo htmlspecialchars($em['subject']); ?>">
+                                        <?php echo htmlspecialchars($em['subject']); ?>
+                                        <?php if (!empty($em['notes'])): ?>
+                                            <span title="Has note" style="color:#3498db;margin-left:4px;">&#9998;</span>
+                                        <?php endif; ?>
+                                        <?php if (!empty($em['recurrence'])): ?>
+                                            <span class="badge badge-secondary" style="font-size:0.6rem;margin-left:4px;">&#8635; <?php echo htmlspecialchars($em['recurrence']); ?></span>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="related-meta">
+                                        <span class="badge-urgency <?php echo $emClass; ?>"><?php echo $emLabel; ?></span>
+                                        <span class="text-muted" style="font-size:0.75rem;"> <?php echo date('H:i', $em['actiontimestamp']); ?></span>
+                                    </div>
+                                </div>
+                                <div class="related-card-actions">
+                                    <button class="action-btn note<?php echo !empty($em['notes']) ? ' has-note' : ''; ?>" title="Note"
+                                            data-id="<?php echo $em['ID']; ?>"
+                                            data-notes="<?php echo htmlspecialchars($em['notes'] ?? '', ENT_QUOTES); ?>"
+                                            onclick="openNoteModal(this)">
+                                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                                    </button>
+                                    <button class="action-btn cancel" title="Cancel"
+                                            data-id="<?php echo $em['ID']; ?>"
+                                            data-subject="<?php echo htmlspecialchars($em['subject'], ENT_QUOTES); ?>"
+                                            onclick="cancelReminder(this)">
+                                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
             <?php endif; ?>
         </div><!-- /.table-scroll -->
         </div>
@@ -592,6 +739,35 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
         </div>
     </div>
 
+    <!-- Note Modal -->
+    <div class="modal fade" id="noteModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content glass-panel" style="border-radius:20px;">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title font-weight-bold">Note</h5>
+                    <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div id="noteError" class="alert alert-danger d-none"></div>
+                    <input type="hidden" id="noteReminderId">
+                    <div class="form-group mb-0">
+                        <label class="font-weight-bold small text-uppercase" style="letter-spacing:0.8px;font-size:0.7rem;">
+                            Note <span class="text-muted font-weight-normal">(included in reminder email)</span>
+                        </label>
+                        <textarea id="noteText" class="form-control" rows="5"
+                            placeholder="Add a note to this reminder…"
+                            style="border-radius:12px; resize:vertical;"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-link text-muted" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-link text-danger mr-auto" onclick="clearNote()">Clear note</button>
+                    <button type="button" class="btn btn-premium px-4" onclick="saveNote()">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast -->
     <div id="snoozerToast" class="snoozer-toast" role="alert" aria-live="polite">
         <span class="toast-icon" id="toastIcon">✓</span>
@@ -645,8 +821,8 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
                 try { data = await res.json(); } catch (_) {}
                 if (!res.ok) throw new Error(data.error || 'Failed to cancel. Please refresh the page.');
 
-                // Fade out and remove the row
-                const row = btn.closest('tr');
+                // Fade out and remove the row (table row or related card)
+                const row = btn.closest('tr') || btn.closest('.related-card');
                 row.style.transition = 'opacity 0.3s, transform 0.3s';
                 row.style.opacity    = '0';
                 row.style.transform  = 'translateX(20px)';
@@ -703,6 +879,77 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
             document.getElementById('rescheduleDatetime').value = local;
             $('#rescheduleModal').modal('show');
         }
+
+        // ── Note modal ───────────────────────────────────────────────
+        function openNoteModal(btn) {
+            document.getElementById('noteReminderId').value = btn.dataset.id;
+            document.getElementById('noteText').value       = btn.dataset.notes || '';
+            document.getElementById('noteError').classList.add('d-none');
+            $('#noteModal').modal('show');
+        }
+
+        async function saveNote() {
+            const id    = parseInt(document.getElementById('noteReminderId').value, 10);
+            const notes = document.getElementById('noteText').value.trim();
+            await submitNote(id, notes);
+        }
+
+        async function clearNote() {
+            const id = parseInt(document.getElementById('noteReminderId').value, 10);
+            await submitNote(id, '');
+        }
+
+        async function submitNote(id, notes) {
+            const errEl = document.getElementById('noteError');
+            const res   = await fetch('api/update_note.php', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                body:    JSON.stringify({ id, notes })
+            });
+            let data = {};
+            try { data = await res.json(); } catch (_) {}
+            if (!res.ok) {
+                errEl.textContent = data.error || 'Failed to save note.';
+                errEl.classList.remove('d-none');
+                return;
+            }
+            $('#noteModal').modal('hide');
+            // Update the button state in-place
+            const btn = document.querySelector('.action-btn.note[data-id="' + id + '"]');
+            if (btn) {
+                btn.dataset.notes = notes;
+                btn.classList.toggle('has-note', notes.length > 0);
+                btn.title = notes.length > 0 ? 'Edit note' : 'Add note';
+            }
+            showToast(notes ? 'Note saved.' : 'Note cleared.', 'success');
+        }
+
+        // ── Auto timezone detect (first login only) ──────────────────
+        <?php if (empty($user['timezone']) || $user['timezone'] === 'UTC'): ?>
+        (function () {
+            try {
+                const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                if (!tz || tz === 'UTC') return;
+                fetch('api/auto_set_timezone.php', {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                    body:    JSON.stringify({ timezone: tz })
+                }).then(r => r.json()).then(d => { if (d.updated) location.reload(); });
+            } catch (_) {}
+        })();
+        <?php endif; ?>
+
+        // ── Instant search ───────────────────────────────────────────
+        (function () {
+            const input = document.getElementById('searchInput');
+            if (!input) return;
+            let timer;
+            const form = input.closest('form');
+            input.addEventListener('input', function () {
+                clearTimeout(timer);
+                timer = setTimeout(function () { form.submit(); }, 350);
+            });
+        })();
 
         async function submitReschedule() {
             const id          = document.getElementById('rescheduleId').value;

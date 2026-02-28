@@ -306,9 +306,19 @@ class EmailProcessor
         $template = $this->getTemplate('reminder');
         $body = $template['body'];
 
+        // Notes block (if set)
+        $notesBlock = '';
+        if (!empty($row['notes'])) {
+            $notesBlock = "<div style='margin:18px 0;padding:14px 16px;background:#f9f6fd;border-left:3px solid #7d3c98;border-radius:6px;font-size:13px;color:#444;line-height:1.6;'>"
+                        . "<strong style='display:block;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#7d3c98;margin-bottom:6px;'>Note</strong>"
+                        . nl2br(htmlspecialchars($row['notes']))
+                        . "</div>";
+        }
+
         // Replace Placeholders
         $replacements = [
             '{{SUBJECT}}' => htmlspecialchars($subject),
+            '{{NOTES_BLOCK}}' => $notesBlock,
             '{{CANCEL_URL}}' => $cancelUrl,
             '{{SNOOZE_BUTTONS}}' => $snoozeButtons
         ];

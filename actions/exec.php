@@ -206,21 +206,39 @@ if ($action === 's') {
     $subject = cleanSubject($email['subject']);
 
     if ($time === 'today.midnight') {
+        // Release now: fire the existing reminder immediately
         $actiontimestamp = time();
+        $db->query(
+            "UPDATE emails SET processed = ?, actiontimestamp = ? WHERE id = ?",
+            [EmailStatus::PROCESSED, $actiontimestamp, $ID],
+            'iii'
+        );
         $msg = "Your email has been <strong>released</strong> and will arrive shortly.";
         renderResponse("Released", "Email Released", $subject, $msg);
     } else {
+        // Snooze: create a brand-new reminder row; leave the original as REMINDED
         $actiontimestamp = Utils::parseTimeExpression($time);
         $formattedDate   = date('l, F j Y \a\t g:i A', $actiontimestamp);
-        $msg = "Next reminder scheduled for <strong>$formattedDate</strong>.";
+
+        $newMessageId = 'snz_' . bin2hex(random_bytes(16)) . '@snoozer';
+        $newSslKey    = random_bytes(32);
+        $mailDomain   = Utils::getMailDomain();
+
+        // Copy notes if the column exists (added by migration 008)
+        $notesVal = $email['notes'] ?? null;
+
+        $db->query(
+            "INSERT INTO emails
+                (message_id, fromaddress, toaddress, header, subject, timestamp, sslkey, processed, actiontimestamp, notes)
+             VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?)",
+            [$newMessageId, $email['fromaddress'], $time . '@' . $mailDomain,
+             $email['subject'], time(), $newSslKey, EmailStatus::PROCESSED, $actiontimestamp, $notesVal],
+            'sssssisiss'
+        );
+
+        $msg = "A new reminder has been created for <strong>$formattedDate</strong>.";
         renderResponse("Snoozed", "Reminder Snoozed", $subject, $msg);
     }
-
-    $db->query(
-        "UPDATE emails SET processed = ?, actiontimestamp = ? WHERE id = ?",
-        [EmailStatus::PROCESSED, $actiontimestamp, $ID],
-        'iii'
-    );
 
     $auditLog->log(
         AuditLog::REMINDER_SNOOZED,
