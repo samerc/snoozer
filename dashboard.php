@@ -47,7 +47,7 @@ if ($view === 'related') {
     foreach ($allUpcoming as $em) {
         $clean = preg_replace('/[^a-z0-9\s]/i', ' ', mb_strtolower($em['subject']));
         $words = preg_split('/\s+/', $clean, -1, PREG_SPLIT_NO_EMPTY);
-        $keys  = array_unique(array_filter($words, fn($w) => strlen($w) >= 4 && !in_array($w, $stopWords)));
+        $keys  = array_unique(array_filter($words, function ($w) use ($stopWords) { return strlen($w) >= 4 && !in_array($w, $stopWords); }));
         $emailKeywords[$em['ID']] = array_values($keys);
     }
 
@@ -69,7 +69,7 @@ if ($view === 'related') {
         $groups[] = $group;
     }
     // Sort: multi-email groups first, then singles
-    usort($groups, fn($a, $b) => count($b) - count($a));
+    usort($groups, function ($a, $b) { return count($b) - count($a); });
     $relatedGroups = $groups;
 }
 

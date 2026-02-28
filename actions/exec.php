@@ -233,7 +233,7 @@ if ($action === 's') {
              VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?)",
             [$newMessageId, $email['fromaddress'], $time . '@' . $mailDomain,
              $email['subject'], time(), $newSslKey, EmailStatus::PROCESSED, $actiontimestamp, $notesVal],
-            'sssssisiss'
+            'ssssisiis'
         );
 
         $msg = "A new reminder has been created for <strong>$formattedDate</strong>.";
