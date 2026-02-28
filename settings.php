@@ -2,6 +2,7 @@
 require_once 'src/Session.php';
 require_once 'src/User.php';
 require_once 'src/Utils.php';
+require_once 'src/GroupRepository.php';
 
 Session::start();
 Session::requireAuth();
@@ -19,6 +20,9 @@ if (!empty($user['timezone'])) {
     $_SESSION['user_timezone'] = $user['timezone'];
 }
 $_SESSION['user_theme'] = $user['theme'] ?? 'dark';
+
+$groupRepo  = new GroupRepository();
+$userGroups = $groupRepo->getForUser((int)$user['ID']);
 
 $message = '';
 $error = '';
@@ -173,7 +177,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
             </form>
         </div>
+        <!-- Groups -->
+        <div class="glass-panel p-4 mt-4">
+            <h5 class="font-weight-bold mb-1">Reminder Groups</h5>
+            <p class="text-muted small mb-3">Assign multiple group labels to reminders from the dashboard and kanban.</p>
+
+            <div id="groupsList">
+                <?php foreach ($userGroups as $g): ?>
+                <div class="group-row d-flex align-items-center mb-2" data-id="<?php echo $g['ID']; ?>" data-name="<?php echo htmlspecialchars($g['name'], ENT_QUOTES); ?>" data-color="<?php echo $g['color']; ?>">
+                    <span class="group-dot mr-2" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:<?php echo $g['color']; ?>;flex-shrink:0;"></span>
+                    <span class="group-name-label flex-grow-1 font-weight-600"><?php echo htmlspecialchars($g['name']); ?></span>
+                    <button class="btn btn-sm btn-link text-muted py-0" onclick="startEditGroup(this)">Edit</button>
+                    <button class="btn btn-sm btn-link text-danger py-0" onclick="deleteGroup(this)">Delete</button>
+                </div>
+                <?php endforeach; ?>
+            </div>
+
+            <div id="groupFormArea" class="mt-3"></div>
+
+            <button class="btn btn-outline-secondary btn-sm rounded-pill px-3 mt-2" id="showAddGroupBtn" onclick="showAddGroupForm()">+ New Group</button>
+        </div>
     </div>
+
+    <style>
+        .color-swatch {
+            width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
+            border: 2px solid transparent; transition: border-color 0.15s, transform 0.15s;
+            flex-shrink: 0;
+        }
+        .color-swatch.selected, .color-swatch:hover { border-color: #fff; transform: scale(1.2); }
+        .group-name-label { font-size: 0.9rem; }
+    </style>
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
@@ -191,6 +225,147 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             toggleSwitch.addEventListener('change', switchTheme, false);
         });
+
+        // ── Group management ─────────────────────────────────────────
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+        const GROUP_COLORS = ['#7d3c98','#3498db','#27ae60','#1abc9c','#e67e22','#e74c3c','#e91e63','#795548'];
+
+        function colorSwatches(selected) {
+            return GROUP_COLORS.map(c =>
+                `<span class="color-swatch${c === selected ? ' selected' : ''}" data-color="${c}"
+                       style="background:${c};" onclick="selectSwatch(this)"></span>`
+            ).join('');
+        }
+
+        function selectSwatch(el) {
+            el.closest('.swatch-row').querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+            el.classList.add('selected');
+        }
+
+        function getSelectedColor(container) {
+            const sel = container.querySelector('.color-swatch.selected');
+            return sel ? sel.dataset.color : '#7d3c98';
+        }
+
+        function showAddGroupForm() {
+            document.getElementById('showAddGroupBtn').style.display = 'none';
+            document.getElementById('groupFormArea').innerHTML = `
+                <div class="d-flex align-items-center flex-wrap mt-1" style="gap:8px;" id="addGroupForm">
+                    <input type="text" id="newGroupName" class="form-control form-control-sm rounded-pill px-3"
+                           placeholder="Group name" style="max-width:180px;" maxlength="100">
+                    <div class="swatch-row d-flex" style="gap:4px;">${colorSwatches('#7d3c98')}</div>
+                    <button class="btn btn-premium btn-sm rounded-pill px-3" onclick="createGroup()">Add</button>
+                    <button class="btn btn-link btn-sm text-muted" onclick="cancelGroupForm()">Cancel</button>
+                </div>`;
+            document.getElementById('newGroupName').focus();
+        }
+
+        function cancelGroupForm() {
+            document.getElementById('groupFormArea').innerHTML = '';
+            document.getElementById('showAddGroupBtn').style.display = '';
+        }
+
+        async function createGroup() {
+            const name  = document.getElementById('newGroupName').value.trim();
+            const color = getSelectedColor(document.getElementById('addGroupForm'));
+            if (!name) return;
+            const res  = await fetch('api/manage_group.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                body: JSON.stringify({ action: 'create', name, color })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) { alert(data.error || 'Error'); return; }
+
+            appendGroupRow(data.id, data.name, data.color);
+            cancelGroupForm();
+        }
+
+        function appendGroupRow(id, name, color) {
+            const row = document.createElement('div');
+            row.className = 'group-row d-flex align-items-center mb-2';
+            row.dataset.id    = id;
+            row.dataset.name  = name;
+            row.dataset.color = color;
+            row.innerHTML = `
+                <span class="group-dot mr-2" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${color};flex-shrink:0;"></span>
+                <span class="group-name-label flex-grow-1 font-weight-600">${escapeHtml(name)}</span>
+                <button class="btn btn-sm btn-link text-muted py-0" onclick="startEditGroup(this)">Edit</button>
+                <button class="btn btn-sm btn-link text-danger py-0" onclick="deleteGroup(this)">Delete</button>`;
+            document.getElementById('groupsList').appendChild(row);
+        }
+
+        function startEditGroup(btn) {
+            const row   = btn.closest('.group-row');
+            const id    = row.dataset.id;
+            const name  = row.dataset.name;
+            const color = row.dataset.color;
+
+            row.innerHTML = `
+                <div class="d-flex align-items-center flex-wrap" style="gap:8px;width:100%;" data-edit-row="${id}">
+                    <input type="text" class="form-control form-control-sm rounded-pill px-3 edit-group-name"
+                           value="${escapeAttr(name)}" style="max-width:180px;" maxlength="100">
+                    <div class="swatch-row d-flex" style="gap:4px;">${colorSwatches(color)}</div>
+                    <button class="btn btn-premium btn-sm rounded-pill px-3" onclick="saveEditGroup(this, ${id})">Save</button>
+                    <button class="btn btn-link btn-sm text-muted" onclick="cancelEditGroup(this, ${id}, '${escapeAttr(name)}', '${color}')">Cancel</button>
+                </div>`;
+        }
+
+        async function saveEditGroup(btn, id) {
+            const container = btn.closest('[data-edit-row]');
+            const name  = container.querySelector('.edit-group-name').value.trim();
+            const color = getSelectedColor(container);
+            if (!name) return;
+            const res  = await fetch('api/manage_group.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                body: JSON.stringify({ action: 'update', id, name, color })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) { alert(data.error || 'Error'); return; }
+
+            const row = container.closest('.group-row');
+            row.dataset.name  = name;
+            row.dataset.color = color;
+            row.innerHTML = `
+                <span class="group-dot mr-2" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${color};flex-shrink:0;"></span>
+                <span class="group-name-label flex-grow-1 font-weight-600">${escapeHtml(name)}</span>
+                <button class="btn btn-sm btn-link text-muted py-0" onclick="startEditGroup(this)">Edit</button>
+                <button class="btn btn-sm btn-link text-danger py-0" onclick="deleteGroup(this)">Delete</button>`;
+        }
+
+        function cancelEditGroup(btn, id, name, color) {
+            const row = btn.closest('.group-row');
+            row.dataset.name  = name;
+            row.dataset.color = color;
+            row.innerHTML = `
+                <span class="group-dot mr-2" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${color};flex-shrink:0;"></span>
+                <span class="group-name-label flex-grow-1 font-weight-600">${escapeHtml(name)}</span>
+                <button class="btn btn-sm btn-link text-muted py-0" onclick="startEditGroup(this)">Edit</button>
+                <button class="btn btn-sm btn-link text-danger py-0" onclick="deleteGroup(this)">Delete</button>`;
+        }
+
+        async function deleteGroup(btn) {
+            const row  = btn.closest('.group-row');
+            const name = row.dataset.name;
+            if (!confirm('Delete group "' + name + '"? It will be removed from all reminders.')) return;
+            const id   = row.dataset.id;
+            const res  = await fetch('api/manage_group.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                body: JSON.stringify({ action: 'delete', id: parseInt(id) })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) { alert(data.error || 'Error'); return; }
+            row.remove();
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+        function escapeAttr(s) {
+            return String(s).replace(/'/g,"\\'").replace(/"/g,'&quot;');
+        }
     </script>
 </body>
 

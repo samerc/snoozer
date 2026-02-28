@@ -2,6 +2,7 @@
 require_once 'src/Session.php';
 require_once 'src/User.php';
 require_once 'src/EmailRepository.php';
+require_once 'src/GroupRepository.php';
 require_once 'src/Utils.php';
 
 Session::start();
@@ -30,6 +31,32 @@ $searchQuery = trim($_GET['q'] ?? '');
 $view        = in_array($_GET['view'] ?? '', ['upcoming', 'history', 'related']) ? $_GET['view'] : 'upcoming';
 
 $emailRepo = new EmailRepository();
+$groupRepo = new GroupRepository();
+$userGroups = $groupRepo->getForUser((int)$_SESSION['user_id']);
+
+// Validate group filter belongs to this user
+$groupFilter = intval($_GET['group'] ?? 0);
+if ($groupFilter) {
+    $valid = false;
+    foreach ($userGroups as $g) {
+        if ((int)$g['ID'] === $groupFilter) { $valid = true; break; }
+    }
+    if (!$valid) $groupFilter = 0;
+}
+
+// Helper to build dashboard URLs preserving current filters
+function dashUrl($overrides = []) {
+    $current = array_filter([
+        'view'  => $_GET['view']  ?? null,
+        'q'     => $_GET['q']     ?? null,
+        'group' => $_GET['group'] ?? null,
+        'page'  => $_GET['page']  ?? null,
+    ], function($v) { return $v !== null && $v !== '' && $v !== '0' && $v !== 0; });
+    $merged = array_merge($current, $overrides);
+    $merged = array_filter($merged, function($v) { return $v !== null && $v !== '' && $v !== '0' && $v !== 0; });
+    $query = http_build_query($merged);
+    return 'dashboard.php' . ($query ? '?' . $query : '');
+}
 
 // ── Related topics: load all upcoming, cluster by shared keywords ──────────
 $relatedGroups = [];
@@ -55,11 +82,19 @@ if ($view === 'history') {
     $offset      = ($page - 1) * $perPage;
     $emails      = $emailRepo->getHistoryForUser($currentUserEmail, $perPage, $offset, $searchQuery ?: null);
 } else {
-    $totalEmails = $emailRepo->countUpcomingForUser($currentUserEmail, $searchQuery ?: null);
+    $totalEmails = $emailRepo->countUpcomingForUser($currentUserEmail, $searchQuery ?: null, $groupFilter ?: null);
     $totalPages  = max(1, ceil($totalEmails / $perPage));
     $page        = min($page, $totalPages);
     $offset      = ($page - 1) * $perPage;
-    $emails      = $emailRepo->getUpcomingForUser($currentUserEmail, $perPage, $offset, $searchQuery ?: null);
+    $emails      = $emailRepo->getUpcomingForUser($currentUserEmail, $perPage, $offset, $searchQuery ?: null, $groupFilter ?: null);
+}
+
+// Load group memberships for displayed emails (upcoming + related)
+$emailGroups = [];
+if ($view === 'related' && !empty($allUpcoming)) {
+    $emailGroups = $groupRepo->getMembershipsForEmails(array_column($allUpcoming, 'ID'));
+} elseif ($view === 'upcoming' && !empty($emails)) {
+    $emailGroups = $groupRepo->getMembershipsForEmails(array_column($emails, 'ID'));
 }
 
 $statToday   = $emailRepo->countDueTodayForUser($currentUserEmail);
@@ -222,6 +257,38 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
         .snoozer-toast.toast-success { border-color: #27ae60; }
         .snoozer-toast.toast-error   { border-color: #e74c3c; }
         .toast-icon                  { font-size: 1.1rem; flex-shrink: 0; }
+
+        /* ── Group chips ─────────────────────────────────────── */
+        .email-group-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+        .email-group-chip {
+            display: inline-block; padding: 1px 8px; border-radius: 10px;
+            font-size: 0.62rem; font-weight: 700; cursor: pointer;
+        }
+        .email-group-add-btn {
+            background: none; border: 1px dashed var(--glass-border); border-radius: 10px;
+            padding: 1px 7px; font-size: 0.62rem; font-weight: 700; color: var(--text-muted);
+            cursor: pointer; transition: all 0.15s;
+        }
+        .email-group-add-btn:hover { border-color: var(--primary-purple); color: var(--primary-purple-light); }
+
+        /* ── Group picker ─────────────────────────────────────── */
+        #groupPicker {
+            position: fixed; z-index: 9999;
+            background: var(--glass-bg, rgba(20,15,40,0.95));
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border); border-radius: 14px;
+            padding: 8px; box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+            min-width: 155px; display: none;
+        }
+        .group-picker-item {
+            display: flex; align-items: center; gap: 8px;
+            padding: 7px 12px; border-radius: 8px; font-size: 0.78rem;
+            font-weight: 700; cursor: pointer; transition: background 0.15s;
+        }
+        .group-picker-item:hover { background: rgba(255,255,255,0.1); }
+        .group-picker-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+        .group-picker-check { margin-left: auto; font-size: 0.8rem; opacity: 0; }
+        .group-picker-item.assigned .group-picker-check { opacity: 1; }
 
         /* ── Related Topics ─────────────────────────────────── */
         .related-group { border-radius: 14px; }
@@ -420,6 +487,25 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
             </div>
         </div>
 
+        <!-- Group filter bar -->
+        <?php if (!empty($userGroups) && $view !== 'history'): ?>
+        <div class="glass-panel mb-3 px-3 py-2 d-flex align-items-center flex-wrap" style="gap:6px;">
+            <span class="small text-muted mr-1" style="font-weight:600;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.8px;">Groups:</span>
+            <a href="<?php echo dashUrl(['group' => null, 'page' => null]); ?>"
+               class="badge-urgency <?php echo !$groupFilter ? 'badge-today' : 'badge-later'; ?>">All</a>
+            <?php foreach ($userGroups as $g): ?>
+                <?php $isActive = $groupFilter === (int)$g['ID']; ?>
+                <a href="<?php echo dashUrl(['group' => $g['ID'], 'page' => null]); ?>"
+                   class="badge-urgency"
+                   style="<?php echo $isActive
+                       ? "background:{$g['color']}33;color:{$g['color']};border:1.5px solid {$g['color']};"
+                       : 'background:rgba(149,165,166,0.15);color:#7f8c8d;'; ?>">
+                    <?php echo htmlspecialchars($g['name']); ?>
+                </a>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+
         <!-- Table -->
         <div class="glass-panel p-0 overflow-hidden">
         <div class="table-scroll">
@@ -477,6 +563,20 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
                                     </div>
                                     <?php if (!empty($email['recurrence'])): ?>
                                         <span class="badge badge-secondary" style="font-size:0.6rem;margin-top:3px;">&#8635; <?php echo htmlspecialchars($email['recurrence']); ?></span>
+                                    <?php endif; ?>
+                                    <?php if (!empty($userGroups)): ?>
+                                    <div class="email-group-chips mt-1" data-email-id="<?php echo $email['ID']; ?>"
+                                         data-assigned="<?php echo htmlspecialchars(json_encode(array_column($emailGroups[$email['ID']] ?? [], 'ID')), ENT_QUOTES); ?>">
+                                        <?php foreach ($emailGroups[$email['ID']] ?? [] as $g): ?>
+                                            <span class="email-group-chip" style="background:<?php echo $g['color']; ?>22;color:<?php echo $g['color']; ?>;border:1px solid <?php echo $g['color']; ?>55;">
+                                                <?php echo htmlspecialchars($g['name']); ?>
+                                            </span>
+                                        <?php endforeach; ?>
+                                        <button class="email-group-add-btn" title="Assign groups"
+                                                onclick="openGroupPicker(event, this)">
+                                            <?php echo empty($emailGroups[$email['ID']]) ? '+ Group' : '+'; ?>
+                                        </button>
+                                    </div>
                                     <?php endif; ?>
                                 </td>
                                 <td class="small text-muted"><?php echo date('M d, Y', $email['timestamp']); ?></td>
@@ -596,6 +696,20 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
                                             <span class="badge badge-secondary" style="font-size:0.6rem;margin-left:4px;">&#8635; <?php echo htmlspecialchars($em['recurrence']); ?></span>
                                         <?php endif; ?>
                                     </div>
+                                    <?php if (!empty($userGroups)): ?>
+                                    <div class="email-group-chips mt-1" data-email-id="<?php echo $em['ID']; ?>"
+                                         data-assigned="<?php echo htmlspecialchars(json_encode(array_column($emailGroups[$em['ID']] ?? [], 'ID')), ENT_QUOTES); ?>">
+                                        <?php foreach ($emailGroups[$em['ID']] ?? [] as $g): ?>
+                                            <span class="email-group-chip" style="background:<?php echo $g['color']; ?>22;color:<?php echo $g['color']; ?>;border:1px solid <?php echo $g['color']; ?>55;">
+                                                <?php echo htmlspecialchars($g['name']); ?>
+                                            </span>
+                                        <?php endforeach; ?>
+                                        <button class="email-group-add-btn" title="Assign groups"
+                                                onclick="openGroupPicker(event, this)">
+                                            <?php echo empty($emailGroups[$em['ID']]) ? '+ Group' : '+'; ?>
+                                        </button>
+                                    </div>
+                                    <?php endif; ?>
                                     <div class="related-meta">
                                         <span class="badge-urgency <?php echo $emClass; ?>"><?php echo $emLabel; ?></span>
                                         <span class="text-muted" style="font-size:0.75rem;"> <?php echo date('H:i', $em['actiontimestamp']); ?></span>
@@ -742,6 +856,9 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
             </div>
         </div>
     </div>
+
+    <!-- Group Picker -->
+    <div id="groupPicker"></div>
 
     <!-- Toast -->
     <div id="snoozerToast" class="snoozer-toast" role="alert" aria-live="polite">
@@ -913,6 +1030,114 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
             } catch (_) {}
         })();
         <?php endif; ?>
+
+        // ── Group picker ────────────────────────────────────────────
+        const userGroups = <?php echo json_encode(array_values($userGroups)); ?>;
+        const groupPicker = document.getElementById('groupPicker');
+        let gpClose = null;
+
+        window.openGroupPicker = function(event, btn) {
+            event.stopPropagation();
+            const chipsDiv  = btn.closest('.email-group-chips');
+            const emailId   = parseInt(chipsDiv.dataset.emailId, 10);
+            const assigned  = JSON.parse(chipsDiv.dataset.assigned || '[]');
+
+            if (gpClose) { document.removeEventListener('click', gpClose); gpClose = null; }
+            groupPicker.innerHTML = '';
+
+            if (!userGroups.length) {
+                const msg = document.createElement('div');
+                msg.className  = 'group-picker-item';
+                msg.style.color = 'var(--text-muted)';
+                msg.textContent = 'No groups yet — create one in Settings';
+                groupPicker.appendChild(msg);
+            } else {
+                userGroups.forEach(function(g) {
+                    const isOn = assigned.indexOf(g.ID) !== -1;
+                    const item = document.createElement('div');
+                    item.className = 'group-picker-item' + (isOn ? ' assigned' : '');
+                    item.innerHTML = `<span class="group-picker-dot" style="background:${g.color};"></span>
+                        <span style="color:${g.color};">${escHtml(g.name)}</span>
+                        <span class="group-picker-check">&#10003;</span>`;
+                    item.onclick = function(e) {
+                        e.stopPropagation();
+                        toggleReminderGroup(emailId, g, chipsDiv, item);
+                    };
+                    groupPicker.appendChild(item);
+                });
+            }
+
+            const rect = btn.getBoundingClientRect();
+            groupPicker.style.display = 'block';
+            const ph = groupPicker.offsetHeight;
+            const below = window.innerHeight - rect.bottom;
+            groupPicker.style.top  = (below >= ph + 8
+                ? rect.bottom + window.scrollY + 5
+                : rect.top + window.scrollY - ph - 5) + 'px';
+            groupPicker.style.left = rect.left + 'px';
+
+            setTimeout(function() {
+                gpClose = function(e) {
+                    if (!groupPicker.contains(e.target)) {
+                        groupPicker.style.display = 'none';
+                        document.removeEventListener('click', gpClose);
+                        gpClose = null;
+                    }
+                };
+                document.addEventListener('click', gpClose);
+            }, 0);
+        };
+
+        async function toggleReminderGroup(emailId, group, chipsDiv, itemEl) {
+            const res  = await fetch('api/update_reminder_group.php', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                body:    JSON.stringify({ email_id: emailId, group_id: group.ID })
+            });
+            let data = {};
+            try { data = await res.json(); } catch (_) {}
+            if (!res.ok) { showToast(data.error || 'Error', 'error'); return; }
+
+            const wasAssigned = itemEl.classList.contains('assigned');
+            itemEl.classList.toggle('assigned', !wasAssigned);
+
+            // Update data-assigned
+            let assigned = JSON.parse(chipsDiv.dataset.assigned || '[]');
+            if (wasAssigned) {
+                assigned = assigned.filter(function(id) { return id !== group.ID; });
+            } else {
+                assigned.push(group.ID);
+            }
+            chipsDiv.dataset.assigned = JSON.stringify(assigned);
+
+            // Rebuild chips display
+            rebuildGroupChips(chipsDiv, assigned);
+            showToast(wasAssigned ? 'Removed from ' + group.name : 'Added to ' + group.name);
+        }
+
+        function rebuildGroupChips(chipsDiv, assignedIds) {
+            // Remove all chips and the add button, then re-render
+            chipsDiv.innerHTML = '';
+            assignedIds.forEach(function(gid) {
+                const g = userGroups.find(function(x) { return x.ID === gid; });
+                if (!g) return;
+                const chip = document.createElement('span');
+                chip.className = 'email-group-chip';
+                chip.style.cssText = `background:${g.color}22;color:${g.color};border:1px solid ${g.color}55;`;
+                chip.textContent = g.name;
+                chipsDiv.appendChild(chip);
+            });
+            const addBtn = document.createElement('button');
+            addBtn.className = 'email-group-add-btn';
+            addBtn.title = 'Assign groups';
+            addBtn.textContent = assignedIds.length === 0 ? '+ Group' : '+';
+            addBtn.onclick = function(e) { openGroupPicker(e, addBtn); };
+            chipsDiv.appendChild(addBtn);
+        }
+
+        function escHtml(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
 
         // ── Instant search ───────────────────────────────────────────
         (function () {

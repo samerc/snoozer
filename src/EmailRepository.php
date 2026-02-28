@@ -18,7 +18,7 @@ class EmailRepository
         return $this->db->fetchAll($sql, [EmailStatus::PROCESSED, EmailStatus::IGNORED, $nowTimestamp], 'iii');
     }
 
-    public function getUpcomingForUser($userEmail, $limit = null, $offset = 0, $subject = null)
+    public function getUpcomingForUser($userEmail, $limit = null, $offset = 0, $subject = null, $groupId = null)
     {
         $params = [$userEmail, EmailStatus::PROCESSED, EmailStatus::IGNORED];
         $types  = 'sii';
@@ -35,6 +35,12 @@ class EmailRepository
             $types .= 's';
         }
 
+        if ($groupId) {
+            $sql .= " AND ID IN (SELECT email_id FROM reminder_group_members WHERE group_id = ?)";
+            $params[] = $groupId;
+            $types .= 'i';
+        }
+
         $sql .= " ORDER BY actiontimestamp ASC";
 
         if ($limit !== null) {
@@ -47,7 +53,7 @@ class EmailRepository
         return $this->db->fetchAll($sql, $params, $types);
     }
 
-    public function countUpcomingForUser($userEmail, $subject = null)
+    public function countUpcomingForUser($userEmail, $subject = null, $groupId = null)
     {
         $params = [$userEmail, EmailStatus::PROCESSED, EmailStatus::IGNORED];
         $types  = 'sii';
@@ -62,6 +68,12 @@ class EmailRepository
             $sql .= " AND subject LIKE ?";
             $params[] = '%' . $subject . '%';
             $types .= 's';
+        }
+
+        if ($groupId) {
+            $sql .= " AND ID IN (SELECT email_id FROM reminder_group_members WHERE group_id = ?)";
+            $params[] = $groupId;
+            $types .= 'i';
         }
 
         $rows = $this->db->fetchAll($sql, $params, $types);

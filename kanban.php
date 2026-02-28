@@ -3,6 +3,7 @@ require_once 'src/Session.php';
 require_once 'src/Database.php';
 require_once 'src/User.php';
 require_once 'src/EmailRepository.php';
+require_once 'src/GroupRepository.php';
 require_once 'src/Utils.php';
 
 Session::start();
@@ -24,6 +25,10 @@ if (!empty($user['timezone'])) {
 }
 $_SESSION['user_theme'] = $user['theme'] ?? 'dark';
 
+// Load groups
+$groupRepo  = new GroupRepository();
+$userGroups = $groupRepo->getForUser((int)$_SESSION['user_id']);
+
 // Load categories
 $db = Database::getInstance();
 $catRows = $db->fetchAll("SELECT ID, Name FROM emailCategory ORDER BY ID");
@@ -38,6 +43,10 @@ $emailRepo = new EmailRepository();
 $q = trim($_GET['q'] ?? '');
 $totalCount = $emailRepo->countUpcomingForUser($currentUserEmail, $q ?: null);
 $emails = $emailRepo->getUpcomingForUser($currentUserEmail, null, 0, $q ?: null);
+
+// Load group memberships for all displayed emails
+$emailIds    = array_column($emails, 'ID');
+$emailGroups = !empty($emailIds) ? $groupRepo->getMembershipsForEmails($emailIds) : [];
 
 $today = [];
 $week  = [];
@@ -58,19 +67,21 @@ foreach ($emails as $email) {
     }
 }
 
-function renderCard($email, $categories, $catColors) {
+function renderCard($email, $categories, $catColors, $userGroups, $cardEmailGroups) {
     $catId    = $email['catID'] !== null ? (int)$email['catID'] : null;
     $catName  = ($catId && isset($categories[$catId])) ? $categories[$catId] : null;
     $catColor = ($catId && isset($catColors[$catId]))  ? $catColors[$catId]  : null;
     $chipStyle = $catColor
         ? "background:{$catColor}22;color:{$catColor};border-color:{$catColor};"
         : "background:rgba(255,255,255,0.06);color:var(--text-muted);border-color:var(--glass-border);";
-    $chipLabel = $catName ? htmlspecialchars($catName) : '+ Tag';
-    $dataCat   = $catId !== null ? $catId : '';
-    $ts        = $email['actiontimestamp'];
+    $chipLabel   = $catName ? htmlspecialchars($catName) : '+ Tag';
+    $dataCat     = $catId !== null ? $catId : '';
+    $assignedIds = array_column($cardEmailGroups, 'ID');
+    $dataGroups  = htmlspecialchars(json_encode($assignedIds), ENT_QUOTES);
+    $ts          = $email['actiontimestamp'];
     global $now;
     ?>
-    <div class="card" data-id="<?php echo $email['ID']; ?>" data-cat="<?php echo $dataCat; ?>">
+    <div class="card" data-id="<?php echo $email['ID']; ?>" data-cat="<?php echo $dataCat; ?>" data-groups="<?php echo $dataGroups; ?>">
         <div class="card-subject">
             <?php echo htmlspecialchars($email['subject']); ?>
             <?php if (!empty($email['recurrence'])): ?>
@@ -81,6 +92,22 @@ function renderCard($email, $categories, $catColors) {
                 </div>
             <?php endif; ?>
         </div>
+        <?php if (!empty($cardEmailGroups) || !empty($userGroups)): ?>
+        <div class="card-group-chips email-group-chips"
+             data-email-id="<?php echo $email['ID']; ?>"
+             data-assigned="<?php echo $dataGroups; ?>">
+            <?php foreach ($cardEmailGroups as $g): ?>
+                <span class="email-group-chip" style="background:<?php echo $g['color']; ?>22;color:<?php echo $g['color']; ?>;border:1px solid <?php echo $g['color']; ?>55;">
+                    <?php echo htmlspecialchars($g['name']); ?>
+                </span>
+            <?php endforeach; ?>
+            <?php if (!empty($userGroups)): ?>
+            <button class="email-group-add-btn" onclick="openGroupPicker(event, this)">
+                <?php echo empty($cardEmailGroups) ? '+ Group' : '+'; ?>
+            </button>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
         <div class="card-footer-row">
             <span class="cat-chip"
                   data-cat-id="<?php echo $dataCat; ?>"
@@ -252,6 +279,44 @@ function renderCard($email, $categories, $catColors) {
         }
         .cat-picker-item:hover { background: rgba(255,255,255,0.1); }
 
+        /* ── Group chips on cards ── */
+        .card-group-chips { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 10px; }
+        .email-group-chip {
+            display: inline-block; padding: 1px 7px; border-radius: 10px;
+            font-size: 0.62rem; font-weight: 700; cursor: default;
+        }
+        .email-group-add-btn {
+            background: none; border: 1px dashed var(--glass-border); border-radius: 10px;
+            padding: 1px 7px; font-size: 0.62rem; font-weight: 700; color: var(--text-muted);
+            cursor: pointer; transition: all 0.15s;
+        }
+        .email-group-add-btn:hover { border-color: var(--primary-purple-light); color: var(--primary-purple-light); }
+
+        /* Group filter pills */
+        .group-filter-btn {
+            padding: 4px 14px; border-radius: 20px;
+            border: 1.5px solid var(--glass-border); background: transparent;
+            color: var(--text-muted); font-size: 0.75rem; font-weight: 600;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .group-filter-btn:hover { background: rgba(125,60,152,0.15); border-color: var(--primary-purple-light); color: var(--text-main); }
+        .group-filter-btn.active { background: var(--primary-purple); border-color: var(--primary-purple); color: #fff; }
+
+        /* Group picker */
+        #groupPicker {
+            position: fixed; z-index: 9999;
+            background: var(--glass-bg, rgba(20,15,40,0.95));
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border); border-radius: 14px;
+            padding: 8px; box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+            min-width: 155px; display: none;
+        }
+        .group-picker-item { display:flex; align-items:center; gap:8px; padding:7px 12px; border-radius:8px; font-size:0.78rem; font-weight:700; cursor:pointer; transition:background 0.15s; }
+        .group-picker-item:hover { background: rgba(255,255,255,0.1); }
+        .group-picker-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+        .group-picker-check { margin-left:auto; font-size:0.8rem; opacity:0; }
+        .group-picker-item.assigned .group-picker-check { opacity:1; }
+
         .sortable-ghost { opacity: 0.1; transform: scale(0.9); }
 
         #statusToast {
@@ -336,6 +401,19 @@ function renderCard($email, $categories, $catColors) {
                 <?php endforeach; ?>
                 <button class="cat-filter-btn" data-filter="untagged">Untagged</button>
             </div>
+
+            <?php if (!empty($userGroups)): ?>
+            <div class="d-flex align-items-center flex-wrap ml-3" style="gap:6px;border-left:1px solid var(--glass-border);padding-left:12px;">
+                <span class="small text-muted" style="font-weight:600;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.8px;">Groups:</span>
+                <button class="group-filter-btn active" data-group-filter="">All</button>
+                <?php foreach ($userGroups as $g): ?>
+                    <button class="group-filter-btn" data-group-filter="<?php echo $g['ID']; ?>"
+                            style="--gc:<?php echo $g['color']; ?>;">
+                        <?php echo htmlspecialchars($g['name']); ?>
+                    </button>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -348,7 +426,7 @@ function renderCard($email, $categories, $catColors) {
                         <span class="column-count" id="count-today"><?php echo count($today); ?></span>
                     </div>
                     <div class="kanban-list" id="list-today" data-col="today">
-                        <?php foreach ($today as $email) renderCard($email, $categories, $catColors); ?>
+                        <?php foreach ($today as $email) renderCard($email, $categories, $catColors, $userGroups, $emailGroups[$email['ID']] ?? []); ?>
                     </div>
                 </div>
             </div>
@@ -360,7 +438,7 @@ function renderCard($email, $categories, $catColors) {
                         <span class="column-count" id="count-week"><?php echo count($week); ?></span>
                     </div>
                     <div class="kanban-list" id="list-week" data-col="week">
-                        <?php foreach ($week as $email) renderCard($email, $categories, $catColors); ?>
+                        <?php foreach ($week as $email) renderCard($email, $categories, $catColors, $userGroups, $emailGroups[$email['ID']] ?? []); ?>
                     </div>
                 </div>
             </div>
@@ -372,7 +450,7 @@ function renderCard($email, $categories, $catColors) {
                         <span class="column-count" id="count-later"><?php echo count($later); ?></span>
                     </div>
                     <div class="kanban-list" id="list-later" data-col="later">
-                        <?php foreach ($later as $email) renderCard($email, $categories, $catColors); ?>
+                        <?php foreach ($later as $email) renderCard($email, $categories, $catColors, $userGroups, $emailGroups[$email['ID']] ?? []); ?>
                     </div>
                 </div>
             </div>
@@ -381,6 +459,9 @@ function renderCard($email, $categories, $catColors) {
 
     <!-- Floating category picker -->
     <div id="catPicker"></div>
+
+    <!-- Floating group picker -->
+    <div id="groupPicker"></div>
 
     <div id="statusToast"></div>
 
@@ -547,6 +628,130 @@ function renderCard($email, $categories, $catColors) {
                 if (activeFilter) activeFilter.click();
 
             } catch (e) { console.error(e); }
+        }
+
+        // ── Group filter ────────────────────────────────────────────────────
+        document.querySelectorAll('.group-filter-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.group-filter-btn').forEach(function(b) { b.classList.remove('active'); b.style.background = ''; b.style.borderColor = ''; b.style.color = ''; });
+                this.classList.add('active');
+                const gf = this.dataset.groupFilter;
+                const gc = this.style.getPropertyValue('--gc');
+                if (gf && gc) { this.style.background = gc; this.style.borderColor = gc; this.style.color = '#fff'; }
+
+                document.querySelectorAll('.card').forEach(function(card) {
+                    if (!gf) { card.style.display = ''; return; }
+                    const groups = JSON.parse(card.dataset.groups || '[]');
+                    card.style.display = groups.indexOf(parseInt(gf)) !== -1 ? '' : 'none';
+                });
+                document.querySelectorAll('.kanban-list').forEach(recountList);
+            });
+        });
+
+        // ── Group picker ────────────────────────────────────────────────────
+        const userGroups = <?php echo json_encode(array_values($userGroups)); ?>;
+        const groupPicker = document.getElementById('groupPicker');
+        let gpClose = null;
+
+        window.openGroupPicker = function(event, btn) {
+            event.stopPropagation();
+            const chipsDiv = btn.closest('.email-group-chips');
+            const emailId  = parseInt(chipsDiv.dataset.emailId, 10);
+            const assigned = JSON.parse(chipsDiv.dataset.assigned || '[]');
+
+            if (gpClose) { document.removeEventListener('click', gpClose); gpClose = null; }
+            groupPicker.innerHTML = '';
+
+            if (!userGroups.length) {
+                const msg = document.createElement('div');
+                msg.className = 'group-picker-item';
+                msg.style.color = 'var(--text-muted)';
+                msg.textContent = 'No groups — create one in Settings';
+                groupPicker.appendChild(msg);
+            } else {
+                userGroups.forEach(function(g) {
+                    const isOn = assigned.indexOf(g.ID) !== -1;
+                    const item = document.createElement('div');
+                    item.className = 'group-picker-item' + (isOn ? ' assigned' : '');
+                    item.innerHTML = '<span class="group-picker-dot" style="background:' + g.color + ';"></span>'
+                        + '<span style="color:' + g.color + ';">' + escHtml(g.name) + '</span>'
+                        + '<span class="group-picker-check">&#10003;</span>';
+                    item.onclick = function(e) {
+                        e.stopPropagation();
+                        toggleKanbanGroup(emailId, g, chipsDiv, item);
+                    };
+                    groupPicker.appendChild(item);
+                });
+            }
+
+            const rect = btn.getBoundingClientRect();
+            groupPicker.style.display = 'block';
+            const ph = groupPicker.offsetHeight;
+            const below = window.innerHeight - rect.bottom;
+            groupPicker.style.top  = (below >= ph + 8 ? rect.bottom + window.scrollY + 5 : rect.top + window.scrollY - ph - 5) + 'px';
+            groupPicker.style.left = rect.left + 'px';
+
+            setTimeout(function() {
+                gpClose = function(e) {
+                    if (!groupPicker.contains(e.target)) {
+                        groupPicker.style.display = 'none';
+                        document.removeEventListener('click', gpClose);
+                        gpClose = null;
+                    }
+                };
+                document.addEventListener('click', gpClose);
+            }, 0);
+        };
+
+        async function toggleKanbanGroup(emailId, group, chipsDiv, itemEl) {
+            const res  = await fetch('api/update_reminder_group.php', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                body:    JSON.stringify({ email_id: emailId, group_id: group.ID })
+            });
+            let data = {};
+            try { data = await res.json(); } catch(_) {}
+            if (!res.ok) { showToast(data.error || 'Error'); return; }
+
+            const wasAssigned = itemEl.classList.contains('assigned');
+            itemEl.classList.toggle('assigned', !wasAssigned);
+
+            let assigned = JSON.parse(chipsDiv.dataset.assigned || '[]');
+            if (wasAssigned) { assigned = assigned.filter(function(id) { return id !== group.ID; }); }
+            else             { assigned.push(group.ID); }
+            chipsDiv.dataset.assigned = JSON.stringify(assigned);
+
+            // Update card data-groups
+            const card = chipsDiv.closest('.card');
+            if (card) card.dataset.groups = JSON.stringify(assigned);
+
+            // Rebuild chips
+            rebuildKanbanGroupChips(chipsDiv, assigned);
+            showToast(wasAssigned ? 'Removed from ' + group.name : 'Added to ' + group.name);
+        }
+
+        function rebuildKanbanGroupChips(chipsDiv, assignedIds) {
+            chipsDiv.innerHTML = '';
+            assignedIds.forEach(function(gid) {
+                const g = userGroups.find(function(x) { return x.ID === gid; });
+                if (!g) return;
+                const chip = document.createElement('span');
+                chip.className = 'email-group-chip';
+                chip.style.cssText = 'background:' + g.color + '22;color:' + g.color + ';border:1px solid ' + g.color + '55;';
+                chip.textContent = g.name;
+                chipsDiv.appendChild(chip);
+            });
+            if (userGroups.length) {
+                const addBtn = document.createElement('button');
+                addBtn.className = 'email-group-add-btn';
+                addBtn.textContent = assignedIds.length === 0 ? '+ Group' : '+';
+                addBtn.onclick = function(e) { openGroupPicker(e, addBtn); };
+                chipsDiv.appendChild(addBtn);
+            }
+        }
+
+        function escHtml(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         }
 
         // ── Toast ───────────────────────────────────────────────────────────
