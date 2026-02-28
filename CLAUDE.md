@@ -21,10 +21,10 @@ php tests/simulate_flow.php
 # Test logic
 php tests/test_logic.php
 
-# Apply latest migration (run from project root)
-mysql -u root -p snoozer < migrations/005_create_system_settings.sql
+# Apply a migration (run from project root)
+mysql -u root -p snoozer < migrations/008_add_notes.sql
 
-# Migrate legacy emails.sql into the database (idempotent — safe to re-run)
+# Migrate legacy emails from CSV (export filtered CSV from HeidiSQL first — see cleanup/migrate_emails.php header)
 php cleanup/migrate_emails.php
 ```
 
@@ -34,12 +34,12 @@ php cleanup/migrate_emails.php
 
 - **Database.php** - MySQL singleton connection with prepared statements and transaction support
 - **User.php** - User CRUD, authentication (bcrypt), password management, token-based password setup
-- **Session.php** - Secure session management (timeout, secure cookies, security headers)
+- **Session.php** - Secure session management (timeout, secure cookies, security headers); `Session::isLoggedIn()` is public and used directly by AJAX endpoints instead of `requireAuth()` to avoid redirect-on-fail with empty body
 - **AuditLog.php** - Admin action logging; has `getLogs($filters, $limit, $offset)` and `countLogs($filters)` for the audit viewer
 - **EmailIngestor.php** - IMAP mailbox connection, email parsing with transaction safety
 - **EmailIngestorMailgun.php** - Alternative ingestor using Mailgun API (for environments without IMAP)
-- **EmailProcessor.php** - Main business logic: interprets time expressions, sends reminders and NDRs; looks up `DefaultReminderTime` per user and passes it to `Utils::parseTimeExpression()`
-- **EmailRepository.php** - Data access layer for emails table; has stat methods (`countDueTodayForUser`, `countDueThisWeekForUser`, `countOverdueForUser`) and optional `$subject` search filter on `getUpcomingForUser`/`countUpcomingForUser`
+- **EmailProcessor.php** - Main business logic: interprets time expressions, sends reminders and NDRs; looks up `DefaultReminderTime` per user and passes it to `Utils::parseTimeExpression()`; injects `{{NOTES_BLOCK}}` into reminder emails when a note is set
+- **EmailRepository.php** - Data access layer for emails table; `getUpcomingForUser` selects the `notes` column; has stat methods (`countDueTodayForUser`, `countDueThisWeekForUser`, `countOverdueForUser`) and optional `$subject` search filter
 - **EmailStatus.php** - Constants for email processing states (UNPROCESSED, PROCESSED, REMINDED, IGNORED)
 - **Mailer.php** - PHP mail() wrapper with HTML support and threading headers
 - **RateLimiter.php** - Login brute force protection (tracks failed attempts per IP)
@@ -60,12 +60,24 @@ php cleanup/migrate_emails.php
 - **reschedule_reminder.php** - POST, AJAX CSRF, updates the action timestamp of an existing reminder (ownership checked)
 - **update_reminder.php** - POST, AJAX CSRF, moves a Kanban card between time columns (reschedules by column name)
 - **update_category.php** - POST, AJAX CSRF, sets or clears the `catID` on a reminder card (ownership + category validity checked)
+- **cancel_reminder.php** - POST, AJAX CSRF, sets `processed = -2` (CANCELLED) on a reminder; uses `Session::isLoggedIn()` directly so auth failure returns JSON 401 instead of a redirect
+- **update_note.php** - POST, AJAX CSRF, saves or clears the `notes` field on a reminder (ownership checked)
+- **auto_set_timezone.php** - POST, AJAX CSRF, sets `users.timezone` from the browser's `Intl.DateTimeFormat` API; only applies if the user's timezone is currently null or `UTC`
+
+### AJAX endpoint pattern
+
+All AJAX endpoints must:
+
+1. Check `Session::isLoggedIn()` and return JSON `{'error': ...}` + HTTP 401 — **never** call `Session::requireAuth()` which redirects and leaves an empty body
+2. Check `Utils::validateAjaxCsrf()` return value and return JSON + HTTP 403 on failure
+3. Always output `Content-Type: application/json` as the first header
 
 ### Email Status States
 
 - `processed = NULL/0` - Unprocessed, waiting for analysis
 - `processed = 1` - Processed, waiting for action timestamp
 - `processed = 2` - Reminded, action sent to user
+- `processed = -2` - Cancelled
 
 ### Time Expression Parsing
 
@@ -93,8 +105,8 @@ Environment variables in `.env`:
 ## Database Tables
 
 - `users` - User accounts with bcrypt passwords, timezone, theme preferences, `DefaultReminderTime`
-- `emails` - Reminder queue with message_id, timestamps, processing status
-- `email_templates` - Customizable email templates (wrapper, reminder)
+- `emails` - Reminder queue with message_id, timestamps, processing status, `notes` (TEXT, migration 008)
+- `email_templates` - Customizable email templates (wrapper, reminder); reminder template uses `{{SUBJECT}}`, `{{NOTES_BLOCK}}`, `{{CANCEL_URL}}`, `{{SNOOZE_BUTTONS}}`
 - `emailCategory` - Kanban board categories
 - `login_attempts` - Rate limiting tracking for brute force protection
 - `audit_logs` - Admin action audit trail (user changes, password resets, logins)
@@ -104,12 +116,13 @@ Environment variables in `.env`:
 
 Apply in order from project root:
 
-| File                                          | Description                               |
-|-----------------------------------------------|-------------------------------------------|
-| `Database_Export.sql`                         | Base schema                               |
-| `migrations/005_create_system_settings.sql`   | `system_settings` table for cron health   |
-| `migrations/006_add_thread_reminders.sql`     | `thread_reminders` column on `users`      |
-| `migrations/007_add_recurrence.sql`           | `recurrence` column on `emails`           |
+| File                                          | Description                                              |
+|-----------------------------------------------|----------------------------------------------------------|
+| `Database_Export.sql`                         | Base schema                                              |
+| `migrations/005_create_system_settings.sql`   | `system_settings` table for cron health                  |
+| `migrations/006_add_thread_reminders.sql`     | `thread_reminders` column on `users`                     |
+| `migrations/007_add_recurrence.sql`           | `recurrence` column on `emails`                          |
+| `migrations/008_add_notes.sql`                | `notes` column on `emails`; updates reminder template    |
 
 ## Security
 
@@ -144,6 +157,24 @@ All admin pages require `Session::requireAdmin()`.
 - Action URLs use `APP_URL` env variable (configurable per environment)
 - Windows deployment via IIS (web.config present)
 - Reminders created from the dashboard use `message_id = bin2hex(random_bytes(16)) . '@snoozer'` and `toaddress = 'web@{MAIL_DOMAIN}'`
+- Snooze buttons in reminder emails INSERT a new reminder row (new message_id, new sslkey) rather than updating the original; the original stays as `REMINDED` (processed=2). Notes carry over to the new row. The `Release now` button still UPDATEs in place.
+- Dashboard urgency badges use calendar date comparison (not a 86400s window) to correctly distinguish Today / Tomorrow / This week in the user's timezone
+
+## Dashboard Views
+
+`dashboard.php` has three tab views:
+
+- **Upcoming** - Paginated list of pending reminders with note, release, reschedule, and cancel actions
+- **History** - Reminded and cancelled reminders
+- **Related** - All upcoming reminders grouped by shared keywords (words ≥4 chars, stop-words excluded). Groups of 2+ are shown with a purple border. Uses a greedy keyword-overlap clustering algorithm — O(n²) so suitable for typical reminder counts.
+
+### Dashboard UX notes
+
+- Cancel uses AJAX (`api/cancel_reminder.php`) with a fade-out animation and toast; no page reload
+- Notes are saved inline via `api/update_note.php`; the pencil button turns blue when a note exists
+- Search input has 350ms debounce — no Enter required
+- On first load, if user timezone is null/UTC, browser timezone is auto-detected via `Intl.DateTimeFormat` and saved silently via `api/auto_set_timezone.php`; page reloads once to apply
+- Inline JS arguments that could contain user data (subjects, notes) always use `data-*` attributes + `htmlspecialchars(..., ENT_QUOTES)` — never raw `json_encode` inside `onclick="..."` attributes
 
 ## Kanban Board
 
@@ -179,3 +210,12 @@ The `recurrence` column (migration 007) stores `null` for one-time reminders and
 ## Reply-to-Snooze
 
 When a user replies to a reminder email and changes the To: address to a time expression (e.g. `tomorrow@domain`), EmailProcessor detects the `In-Reply-To`/`References` headers referencing an existing reminder owned by that user, reschedules it to the new time, and marks the reply as `IGNORED`. No schema change required — the raw header is already stored in `emails.header`.
+
+## Notes on Reminders
+
+Users can attach a text note to any reminder via the pencil icon on the dashboard. Notes are:
+
+- Stored in `emails.notes` (TEXT, added by migration 008)
+- Displayed as a purple-bordered block in the reminder email (between subject and snooze buttons)
+- Carried over when a reminder is snoozed (new row inherits the original's note)
+- Editable/clearable at any time via the dashboard modal
