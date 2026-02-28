@@ -36,39 +36,14 @@ $relatedGroups = [];
 if ($view === 'related') {
     $allUpcoming = $emailRepo->getUpcomingForUser($currentUserEmail);
 
-    // Stop-words to ignore when extracting keywords
-    $stopWords = ['re', 'fwd', 'fw', 'the', 'and', 'for', 'with', 'from', 'this',
-                  'that', 'have', 'are', 'was', 'will', 'your', 'you', 'our', 'its',
-                  'can', 'not', 'but', 'had', 'has', 'how', 'all', 'any', 'been',
-                  'per', 'via'];
-
-    // Extract keywords per email (words ≥4 chars, not stop-words)
-    $emailKeywords = [];
+    // Group by normalized subject: strip Re:/Fwd: prefix, lowercase, case-insensitive
+    $bySubject = [];
     foreach ($allUpcoming as $em) {
-        $clean = preg_replace('/[^a-z0-9\s]/i', ' ', mb_strtolower($em['subject']));
-        $words = preg_split('/\s+/', $clean, -1, PREG_SPLIT_NO_EMPTY);
-        $keys  = array_unique(array_filter($words, function ($w) use ($stopWords) { return strlen($w) >= 4 && !in_array($w, $stopWords); }));
-        $emailKeywords[$em['ID']] = array_values($keys);
-    }
-
-    // Group: assign each email to clusters sharing a keyword
-    $assigned = [];
-    $groups   = [];
-    foreach ($allUpcoming as $em) {
-        if (isset($assigned[$em['ID']])) continue;
-        $group = [$em];
-        $assigned[$em['ID']] = true;
-        foreach ($allUpcoming as $other) {
-            if ($other['ID'] === $em['ID'] || isset($assigned[$other['ID']])) continue;
-            $shared = array_intersect($emailKeywords[$em['ID']], $emailKeywords[$other['ID']]);
-            if (!empty($shared)) {
-                $group[] = $other;
-                $assigned[$other['ID']] = true;
-            }
-        }
-        $groups[] = $group;
+        $norm = mb_strtolower(trim(preg_replace('/^(re|fwd?|fw)\s*:\s*/i', '', trim($em['subject']))));
+        $bySubject[$norm][] = $em;
     }
     // Sort: multi-email groups first, then singles
+    $groups = array_values($bySubject);
     usort($groups, function ($a, $b) { return count($b) - count($a); });
     $relatedGroups = $groups;
 }
