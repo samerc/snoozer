@@ -541,7 +541,7 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
                 </tbody>
             </table>
 
-            <?php else: // History view ?>
+            <?php elseif ($view === 'history'): ?>
             <table class="table table-borderless table-hover mb-0 dash-table">
                 <thead>
                     <tr>
@@ -582,7 +582,7 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
                     <?php endif; ?>
                 </tbody>
             </table>
-            <?php elseif ($view === 'related'): ?>
+            <?php else: // Related view ?>
             <?php if (empty($relatedGroups)): ?>
                 <div class="empty-state">
                     <svg width="56" height="56" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
